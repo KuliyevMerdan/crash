@@ -56,3 +56,24 @@ export const errorMessage = z.discriminatedUnion('class', [
 ]);
 
 export type ErrorMessage = z.infer<typeof errorMessage>;
+
+const PLAYER_CODES: ReadonlySet<string> = new Set(ERROR_CODES.PLAYER);
+const SESSION_CODES: ReadonlySet<string> = new Set(ERROR_CODES.SESSION);
+
+const isPlayerCode = (code: ErrorCode): code is PlayerErrorCode => PLAYER_CODES.has(code);
+const isSessionCode = (code: ErrorCode): code is SessionErrorCode => SESSION_CODES.has(code);
+
+/**
+ * An `error` message for a code, with its class stamped from the table — the only way the engine and
+ * the server build one, so a class that disagrees with its code cannot be sent in the first place.
+ */
+export function errorMessageOf(
+  code: ErrorCode,
+  message: string,
+  ids: { readonly roundId?: string; readonly betId?: string } = {},
+): ErrorMessage {
+  const base = { type: 'error', message, ...ids } as const;
+  if (isPlayerCode(code)) return { ...base, class: 'PLAYER', code };
+  if (isSessionCode(code)) return { ...base, class: 'SESSION', code };
+  return { ...base, class: 'SYSTEM', code };
+}

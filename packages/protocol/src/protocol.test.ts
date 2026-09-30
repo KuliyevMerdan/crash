@@ -7,6 +7,7 @@ import {
   chainListing,
   classOf,
   decodeFrame,
+  errorMessageOf,
   gameConfig,
   myBet,
   parseClientMessage,
@@ -153,6 +154,22 @@ describe('errors — the class is a function of the code', () => {
       message: 'authenticate first',
     });
     expect(outcome.kind).toBe('ok');
+  });
+
+  it('builds every code into an error the parser accepts, with its class stamped from the table', () => {
+    for (const cls of ['PLAYER', 'SESSION', 'SYSTEM'] as const) {
+      for (const code of ERROR_CODES[cls]) {
+        const message = errorMessageOf(code, 'x', { betId: IDS.BET });
+        expect(message.class).toBe(cls);
+        expect(parseServerMessage(message)).toEqual({ kind: 'ok', message });
+      }
+    }
+    expect(errorMessageOf('NOT_AUTHENTICATED', 'authenticate first')).toEqual({
+      type: 'error',
+      class: 'SESSION',
+      code: 'NOT_AUTHENTICATED',
+      message: 'authenticate first',
+    });
   });
 
   it('keeps every code in exactly one class', () => {

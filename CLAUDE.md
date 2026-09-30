@@ -5,13 +5,14 @@ repository.
 
 ## Project status
 
-> ⚠️ **The contracts exist; the round does not.** **S0 landed 2026-09-30** — the workspace, strict
-> TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. **S1 landed
-> the same day** — `protocol`, `money`, `curve` and `fair`, the four packages everything downstream
-> reads: every message in [`docs/protocol.md`](docs/protocol.md) as a zod schema with a fixture, the
-> curve and its exact inverse, the crash point pinned by a golden test against an independent
-> implementation, the chain, and verification that runs unchanged in a DOM environment. ADR-0001 and
-> ADR-0002 are accepted. **S2 — the round machine, `packages/engine` — is next.**
+> ⚠️ **The round exists; nothing serves it yet.** **S0, S1 and S2 landed 2026-09-30.** S0: the
+> workspace, strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*,
+> CI. S1: `protocol`, `money`, `curve`, `fair` — every message in
+> [`docs/protocol.md`](docs/protocol.md) as a zod schema, the curve and its exact inverse, the crash
+> point pinned against an independent implementation, the chain. S2: `packages/engine`, the round
+> machine — pure, headless, and proven over 10,000 seeded rounds to conserve every minor unit.
+> ADR-0001 and ADR-0002 are accepted. **S3 (`apps/server`) and S4 (`tools/sim`) are next, in
+> either order.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -83,7 +84,7 @@ fills them.
 | `packages/money` | branded `Minor` (the only way in is `minor()`, a safe integer or a throw), exact `add`/`sub`, `payout = floor(stake × m / 100)` refusing any inexact product, `formatMinor` for display | ✅ S1 |
 | `packages/curve` | `multiplierAt` (`m`), `elapsedAt` (its exact inverse in integer ms, walked to the boundary), `smoothMultiplierAt` for drawing only, `MAX_MULTIPLIER`. Pure, tiny, load-bearing | ✅ S1 |
 | `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt`, `createChain` with checkpoints, `verifyLink`, `verifyToCommit`. **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 |
-| `packages/engine` | the round machine — phases, bets, cash-out resolution, settlement. Pure | S2 |
+| `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
 | `packages/client-core` | WebSocket client, clock sync, reconnect, typed event stream out. **No DOM** | C0 |
 | `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
 | `apps/server` | Fastify + `ws` — the round loop, broadcast, persistence | S3 |
@@ -163,9 +164,34 @@ DOM (`config/tsconfig-dom.json`); `apps/server` and `tools/sim` into Node
 ### The round loop lives in `apps/server`, the round logic does not
 
 `apps/server` owns the clock, the socket set and the timers. It calls into `engine` with
-`(state, event, now) → (state, effects)` and broadcasts the effects. **The engine never emits; it
-returns.** That is what lets `tools/sim` run millions of rounds through the same code that serves
-the demo, and what makes "the RTP you publish is the RTP you play" checkable rather than claimed.
+`step(state, event, now) → { state, effects }` and delivers the effects. **The engine never emits;
+it returns** — each effect is a `broadcast` or a `send` to one player, and every one is a message
+the wire schema accepts (the engine suite parses them all). That is what lets `tools/sim` run
+millions of rounds through the same code that serves the demo, and what makes "the RTP you publish
+is the RTP you play" checkable rather than claimed.
+
+How the engine (**S2**) is shaped, because the server and the sim both lean on it:
+
+- **Every step first settles what was due.** Betting closes at `bettingClosesAt`, auto cash-outs fire
+  at `startedAt + t(autoCashOutAt)`, the round busts at `startedAt + t(crashPoint)` — at those
+  *scheduled* moments, before the event at `now` is judged. A late server timer therefore changes
+  nothing: not `startedAt`, not the crash moment, not what an auto cash-out pays (exactly its
+  target, even when the curve jumped past it in that millisecond). And an event received at `now`
+  is ordered after everything due before it, which is ADR-0002's "receive order is the order" in
+  code: at the same millisecond the crash beats a press and an auto cash-out beats a manual one.
+- **The caller does two things:** hands in events with a non-decreasing `now` (backwards is an
+  `EngineError`), and opens rounds, because it holds the chain and the engine only verifies the link
+  (`openRound` refuses a seed that does not hash to its claimed `previousHash`). `nextDeadline` says
+  when the next timer is due and whether it is an `advance` or an `openRound`.
+- **Players cannot break it; callers can.** Everything a player sends is answered with an `error`
+  effect. An `EngineError` is thrown only for a caller bug — opening a round mid-round, time running
+  backwards — and means stop and fix the caller.
+- **Balances live in the engine**, with `granted` (money in) and `house` (net take), so
+  `auditMoney` can state the conservation law: every minor unit granted is in a balance, a stake
+  still riding, or the house.
+- **The idempotency window is the current round and the previous one.** A retry straddling the
+  boundary gets its original answer; a `betId` from further back is not remembered by the engine
+  (see Gaps — persistence, S3).
 
 Persistence sits behind one interface with two implementations: in-memory (tests, sim) and SQLite
 (the deployed demo). The chain must survive a restart — a regenerated chain silently invalidates
@@ -178,7 +204,7 @@ every past verification ([ADR-0001](docs/adr/ADR-0001-committed-crash-point.md))
 | Unit | `curve`: the inverse lands on the boundary for every step to 100× and for random targets to the ceiling on four curves, `t(m(t)) ≤ t` showing the same value · `fair`: NIST and RFC 4231 vectors, chain links, forged seeds refused · `money`: exact arithmetic, overflow refused · `protocol`: a fixture of every message, invariant 9, class-of-code | ✅ S1 |
 | Golden | 30 seeds → crash points, plus other edges and a ten-link chain — **computed by an independent Python implementation**, so the golden values pin correctness, not just stability. Also run in happy-dom (`isomorphic.test.ts`) | ✅ S1 |
 | Contract sync | `tests/protocol-doc.test.ts`: the §2 message table and §6 error table name exactly what the schemas accept · `tests/constants.test.ts`: the multiplier range agrees across `curve`, `fair`, `protocol` | ✅ S1 |
-| Engine | every legal transition, every illegal one rejected, idempotent replay, cash-out ordering | S2 |
+| Engine | every phase transition and every player refusal · a press 1 ms either side of the crash · racing presses on one `betId` · auto against manual in the same and the previous millisecond · auto cash-outs paying their target when processed late · retries across the round boundary · nothing secret in any effect, snapshot or tick before the crash · and **10,000 seeded rounds** (≈63k bets, ≈22k manual wins, ≈11k late presses, ≈6k retries) with money audited after every step and every bet resolved exactly once | ✅ S2 |
 | Statistical | `tools/sim` over ≥10⁶ rounds: `P(crash ≥ m) ≈ 0.99/m`, realised edge within tolerance of `houseEdgeBps`, the same expected return for every cash-out target (docs/protocol.md §3.2) | S4 |
 | Integration | a real socket, a real round, fault injection | S3, P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
@@ -230,6 +256,11 @@ writing:
 
 - **Betting-phase length under real latency.** 7 s is a placeholder. **P0** measures whether a
   300 ms client can reliably place a bet in it.
+- **`betId` uniqueness beyond one round.** The engine remembers the current round's bets and the
+  previous round's (enough for every retry that straddles a boundary), so a client that reuses a
+  `betId` from three rounds ago with the current `roundId` is accepted as a new bet — which breaks
+  docs/protocol.md §7's "a `betId` is single-use". **S3**'s persistence closes it with a uniqueness
+  constraint on `betId`, checked before the event reaches the engine.
 - **The dev surface on the wire.** `forceCrashPoint` is gated on the server (docs/protocol.md §9),
   but its message shape — and what a forced round reveals in place of a chain seed it did not use,
   so that a forced result can never pass for a verified one — is unwritten. **S3** pins it in the

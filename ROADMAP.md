@@ -16,7 +16,8 @@ committed crash point, server-time cash-out, the shared curve, the dependency ru
 **S0 landed 2026-09-30** — the workspace, strict TypeScript, the dependency graph and purity rules
 enforced and proven against illegal fixtures, CI. **S1 landed 2026-09-30** — the contract completed
 (every payload defined, the chain's length and rotation decided) and the four packages that read
-it: `protocol`, `money`, `curve`, `fair`. **S2 is next.**
+it: `protocol`, `money`, `curve`, `fair`. **S2 landed 2026-09-30** — `packages/engine`, the round
+machine, conserving every minor unit over 10,000 seeded rounds. **S3 and S4 are next.**
 
 ---
 
@@ -26,7 +27,7 @@ it: `protocol`, `money`, `curve`, `fair`. **S2 is next.**
 | --- | --- | --- | --- |
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI | — | ✅ (landed 2026-09-30) |
 | **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ✅ (landed 2026-09-30) |
-| **S2** | `engine` — the round machine, pure and headless | S1 | ☐ |
+| **S2** | `engine` — the round machine, pure and headless | S1 | ✅ (landed 2026-09-30) |
 | **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ☐ |
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ☐ |
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ☐ |
@@ -109,23 +110,27 @@ both runtimes, and the protocol schemas parse a hand-written fixture of every me
 
 _2–3 days. The part reviewers actually read._
 
-- [ ] `packages/engine`: `(state, event, now) → (state, effects)`. Phases as an exhaustive
+- [x] `packages/engine`: `step(state, event, now) → { state, effects }`. Phases as an exhaustive
       discriminated union with a total `switch`. **The engine returns effects; it never emits.**
-- [ ] The crash moment computed **once** at round start via `t(crashPoint)`, then scheduled — not
+      Every step settles what was due at its scheduled moment before judging the event, so a late
+      timer changes nothing.
+- [x] The crash moment computed **once** at round start via `t(crashPoint)`, then scheduled — not
       polled per tick ([`docs/protocol.md`](docs/protocol.md) §11, D5).
-- [ ] Bet placement with validation against config limits and balance; `cancelBet` during `BETTING`
-      only.
-- [ ] Cash-out resolution on `receivedAt`, ordered within the round, `TOO_LATE` past the crash
-      moment.
-- [ ] **Auto cash-out fires server-side at exactly `t(autoCashOutAt)`**, producing the same effects
-      as a manual one plus `reason: "AUTO"`.
-- [ ] Idempotency on `betId` for both `placeBet` and `cashOut` — a replay returns the original
-      resolution, never a second bet and never a second payout.
-- [ ] Settlement: every bet resolved exactly once at crash, balances authoritative.
-- [ ] Tests: every legal transition and rejection of every illegal one · a cash-out one millisecond
-      either side of the crash moment · two cash-outs racing on the same `betId` · auto and manual
-      cash-out colliding · 10,000 seeded rounds with no state violation and no money created or
-      destroyed.
+- [x] Bet placement with validation against config limits and balance; one bet per round;
+      `cancelBet` during `BETTING` only.
+- [x] Cash-out resolution on `receivedAt`, ordered within the round, `TOO_LATE` at and past the
+      crash moment.
+- [x] **Auto cash-out fires server-side at exactly `t(autoCashOutAt)`** and pays exactly its
+      target, producing the same effects as a manual one with `reason: "AUTO"`.
+- [x] Idempotency on `betId` for `placeBet`, `cancelBet` and `cashOut` — a replay returns the
+      original answer, never a second bet and never a second payout — across the current and the
+      previous round. Beyond that is S3's persistence ([`CLAUDE.md`](CLAUDE.md) § Gaps).
+- [x] Settlement: every bet resolved exactly once at crash, balances authoritative, the reveal
+      verified against its link before the round is even opened.
+- [x] Tests: every transition and refusal · a cash-out one millisecond either side of the crash
+      moment · two cash-outs racing on the same `betId` · auto and manual cash-out colliding ·
+      10,000 seeded rounds with money audited after every step, every effect parsed against the
+      wire schema, and every bet resolved exactly once.
 
 **Done when:** a headless Vitest run plays 10,000 seeded rounds with bets, auto cash-outs, retries
 and late presses, and the sum of all balances plus house take is exactly conserved — with no socket
