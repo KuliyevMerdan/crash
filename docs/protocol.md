@@ -434,14 +434,21 @@ s→c  { "type": "pong", "clientTime": 1755399999000, "serverTime": 175540000000
 ```
 
 `offset = serverTime − (sent + received) / 2`, `rtt = received − sent`. The client keeps the
-**median of the last 5** samples, re-samples every 30 s, and uses:
+**median of the last 5** samples — a burst of five pings 200 ms apart right after `hello`, so the
+estimate is good before the first frame is drawn, then one ping every 5 s — and uses:
 
 - `offset` to place `startedAt` on its own timeline, so the curve is drawn correctly;
 - `rtt` to tell the player what their manual press will actually land on
   ([ADR-0002](adr/ADR-0002-server-time-cashout.md)).
 
 Neither value is ever sent back to the server or used in a money calculation. `ping` doubles as the
-liveness check: no `pong` for 3 intervals and the client reconnects.
+liveness check: no `pong` for 3 intervals (15 s) and the client drops the socket and reconnects —
+whether or not the socket ever reported closing, because a half-open connection never does.
+
+What no sampling can remove is **asymmetry**: with uplink `u` and downlink `d`, every sample — and
+so the median — is off by `(u − d)/2`. The client draws the curve exactly from `now + offset`, so
+that error is the whole of its drift; `packages/client-core` has a test at 40 ms up / 120 ms down
+holding the estimate to −40 ms and the drawn multiplier to `m(now + offset − startedAt)` exactly.
 
 ## 9. Environment & dev flags
 
@@ -548,3 +555,9 @@ winning only on `crash > x` would pay `(1 − E)·x/(x + 1)`, a 2% edge at a 1.0
 1%. S2 had it the wrong way, deciding on moments (`t(x) < t(crashPoint)`), which also lost targets
 the curve passed in the crash millisecond. Found in S4, before any simulation ran, by asking what
 the simulation would have to show.
+
+**D15 — Ping every 30 s, or every 5 s?** Every 5 s, after a five-ping burst at `hello`. The same ping
+is the liveness check, and three missed intervals at 30 s would leave a dead socket unnoticed for a
+minute and a half — through whole rounds. Rejected: a separate heartbeat message (two timers doing
+one job) and relying on the socket's close event (a half-open connection never fires it).
+

@@ -22,9 +22,13 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@crash/client-core": "workspace:*",
     "@crash/curve": "workspace:*",
+    "@crash/engine": "workspace:*",
     "@crash/fair": "workspace:*",
+    "@crash/money": "workspace:*",
     "@crash/protocol": "workspace:*",
+    "@crash/server": "workspace:*",
     "@eslint/js": "^9",
     "@types/node": "^20",
     "dependency-cruiser": "^16",
@@ -32,6 +36,7 @@
     "eslint-config-prettier": "^10",
     "husky": "^9",
     "lint-staged": "^16",
+    "pino": "catalog:",
     "prettier": "^3",
     "turbo": "^2",
     "typescript": "catalog:",

@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ⚠️ **The server plays and the edge is measured; no client draws it yet.** **S0–S4 landed
+> ⚠️ **The client core holds the round; nothing draws it yet.** **S0–S4 and C0 landed
 > 2026-09-30.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
@@ -15,7 +15,9 @@ repository.
 > SQLite persistence that survives a restart mid-round, the fairness endpoints, the dev surface.
 > S4: `tools/sim` — a million rounds through the engine and the chain in ~13 s, every flat strategy
 > returning 99% within 1σ; it found that S2 paid auto cash-outs wrong at the crash point (D14).
-> ADR-0001 and ADR-0002 are accepted. **C0 (`client-core`) is next.**
+> C0: `packages/client-core` — the socket client, clock sync, reconnect and idempotent requests,
+> proven against the real server in virtual time through 20 dropped connections across 100 rounds.
+> ADR-0001 and ADR-0002 are accepted. **C1 — the curve on screen — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -88,7 +90,7 @@ fills them.
 | `packages/curve` | `multiplierAt` (`m`), `elapsedAt` (its exact inverse in integer ms, walked to the boundary), `smoothMultiplierAt` for drawing only, `MAX_MULTIPLIER`. Pure, tiny, load-bearing | ✅ S1 |
 | `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt`, `createChain` with checkpoints, `verifyLink`, `verifyToCommit`. **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 |
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
-| `packages/client-core` | WebSocket client, clock sync, reconnect, typed event stream out. **No DOM** | C0 |
+| `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync`, reconnect with jittered backoff, ping liveness, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`. **No DOM** — socket, clock and timers are injected | ✅ C0 |
 | `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
 | `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
 | `apps/web` | Vite + React shell around `renderer` + `client-core` | C1–C3 |
@@ -237,6 +239,34 @@ How the server (**S3**) is shaped around it:
   before its reveal — the only line with one is the crash, where it is public. Tested over a real
   round: no line before the crash contains its seed, and no line ever contains `s₀`.
 
+### The client core keeps the round; it never decides it
+
+`packages/client-core` (**C0**) is everything a client needs short of pixels, behind ports — a
+`Transport` (the browser's `WebSocket` in `apps/web`, an in-process pipe in tests), a `Clock` and a
+`Scheduler` — so the very same code runs in the browser and against the real server in virtual time.
+
+- **The view is rebuilt from `hello` and kept current by a pure reducer** (`view.ts`). Every
+  number in it came from the server. A message that does not fit — an unknown `roundId`, a phase
+  skipped — sets `resync`, and the client asks for a fresh `hello` on the same socket rather than
+  guessing (§1, invariant 8).
+- **Replays change nothing.** A retried request is answered with the original reply, whose balance
+  is as old as the original, so a reply is applied only the first time it changes a bet. A bet
+  withdrawn this round is remembered, because a `betAccepted` still in flight from before the cancel
+  would otherwise resurrect it with a stale balance — found by the reducer tests, fixed in the view.
+- **A request is an intent with one `betId`**, generated at the call. A timeout, a `SYSTEM` error or
+  a reconnect sends the same message again; only a reply or a `PLAYER` error ends it. The server's
+  idempotency (§7) does the rest.
+- **Reconnect is a new `hello`**: exponential backoff with ±20% jitter, then `authenticate` with the
+  stored token (an unknown one starts a new wallet). The last view is kept through the drop — stale,
+  not blank. **Liveness is the ping**: three missed pongs and the socket is treated as dead whether
+  or not it said so.
+- **The multiplier is never stored**: `multiplier()` is `m(now + offset − startedAt)`, and
+  `landingMultiplier()` adds half the rtt — what a press will most likely land on (ADR-0002).
+
+To run the real server in virtual time, S3's socket layer was split in C0: `hub.ts` is the
+connection logic over a `Peer` (anything with `send` and `terminate`), `sockets.ts` the `ws`
+adapter, and `createGameServer` the loop, chains and hub without Fastify.
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -246,6 +276,7 @@ How the server (**S3**) is shaped around it:
 | Contract sync | `tests/protocol-doc.test.ts`: the §2 message table and §6 error table name exactly what the schemas accept · `tests/constants.test.ts`: the multiplier range agrees across `curve`, `fair`, `protocol` | ✅ S1 |
 | Engine | every phase transition and every player refusal · a press 1 ms either side of the crash · racing presses on one `betId` · auto against manual in the same and the previous millisecond · auto cash-outs paying their target when processed late · retries across the round boundary · nothing secret in any effect, snapshot or tick before the crash · and **10,000 seeded rounds** (≈63k bets, ≈22k manual wins, ≈11k late presses, ≈6k retries) with money audited after every step and every bet resolved exactly once | ✅ S2 |
 | Statistical | `tools/sim`: in CI, 50,000 seeded rounds with every rate within 4σ of its formula, zero auto cash-outs off the D14 rule, money conserved, and a check that S2's tie rule would sit >9σ out; by hand, `pnpm sim` over a million (below) | ✅ S4 |
+| Client ↔ server | `tests/client-server.test.ts`: `packages/client-core` against `createGameServer` in one virtual clock over an in-process network — **20 connections cut across 100 rounds**, the cuts taking turns at BETTING, RUNNING and CRASHED, the client held to the server's phase, table, bets, balance and multiplier after every reconnect and at every step; and 40 ms up / 120 ms down, the offset at exactly −40 and the drawn multiplier exactly `m(now + offset − startedAt)`. Checked non-vacuous by breaking the reducer and watching it fail. Plus the client's own suite on a scripted server: asymmetric latency, an hour of clock skew, timeouts, `SYSTEM` retries, backoff, half-open liveness, session reset, drift | ✅ C0 |
 | Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 

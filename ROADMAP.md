@@ -20,7 +20,9 @@ it: `protocol`, `money`, `curve`, `fair`. **S2 landed 2026-09-30** — `packages
 machine, conserving every minor unit over 10,000 seeded rounds. **S3 landed 2026-09-30** —
 `apps/server`: the loop, SQLite persistence that resumes a round mid-flight, the fairness
 endpoints, the dev surface. **S4 landed 2026-09-30** — `tools/sim`: a million rounds, every flat
-strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). **C0 is next.**
+strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). **C0 landed
+2026-09-30** — `client-core`, held to the real server's state through 20 dropped connections in
+virtual time. **C1 is next.**
 
 ---
 
@@ -33,7 +35,7 @@ strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). *
 | **S2** | `engine` — the round machine, pure and headless | S1 | ✅ (landed 2026-09-30) |
 | **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ✅ (landed 2026-09-30) |
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ✅ (landed 2026-09-30) |
-| **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ☐ |
+| **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ✅ (landed 2026-09-30) |
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ☐ |
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ☐ |
 | **C3** | Player list, round history, the verification page | C1, S3 | ☐ |
@@ -202,19 +204,29 @@ layers, ready for P1's README.
 
 _2 days. **No DOM in this package.**_
 
-- [ ] WebSocket client with typed message parsing on the way in, a typed event stream on the way out.
-- [ ] **Clock sync** — `ping`/`pong`, median-of-5 offset, re-sample every 30 s, `rtt` exposed
-      separately ([`docs/protocol.md`](docs/protocol.md) §8).
-- [ ] Reconnect with exponential backoff; `authenticate` → `hello` → full state restored. **No
-      recovery call, no replay** — learn `startedAt` and the curve follows.
-- [ ] Liveness: three missed `pong` intervals triggers a reconnect.
-- [ ] Idempotent send: a `placeBet` retried after a timeout reuses its `betId`; a `SYSTEM` error
-      never re-issues under a new one.
-- [ ] Tests against a fake socket: reconnect during each phase · a `hello` for a round that started
-      before the client existed · clock offset under asymmetric latency · a duplicate `betAccepted`.
+- [x] WebSocket client — through a `Transport` port, since the package has no DOM — with typed
+      parsing on the way in and a typed event stream (`subscribe(state, event)`) on the way out.
+- [x] **Clock sync** — `ping`/`pong`, median-of-5 offset and rtt. **Diverged:** a five-ping burst at
+      `hello`, then a ping every 5 s rather than every 30 s, because the same ping is the liveness
+      check (docs/protocol.md §8, D15).
+- [x] Reconnect with exponential backoff and jitter; `authenticate` → `hello` → full state restored.
+      **No recovery call, no replay** — `startedAt` and the synced clock give the curve.
+- [x] Liveness: three missed `pong` intervals drop the socket and reconnect, half-open or not.
+- [x] Idempotent send: every request is an intent with one `betId`, re-sent unchanged after a
+      timeout, a `SYSTEM` error or a reconnect.
+- [x] Tests against a scripted socket: a `hello` for a round that started before the client existed
+      · clock offset under asymmetric latency (and an hour of skew) · a duplicate `betAccepted` —
+      which found a real bug, a late reply resurrecting a cancelled bet · timeouts, retries,
+      backoff, liveness, session reset, drift. Reconnect during each phase runs against the real
+      server (below).
+- [x] S3's socket layer split into a transport-agnostic `hub` and a `ws` adapter, plus
+      `createGameServer`, so the real server runs in virtual time.
 
 **Done when:** a headless test disconnects the client at 20 random points across 100 rounds and
 every reconnect lands in the correct phase with the correct bets, balance and multiplier.
+**Met 2026-09-30** (`tests/client-server.test.ts`) — against the real server, not a fake: twenty
+cuts, taking turns at each phase, and the client matches the server's round, table, bets, balance
+and multiplier after every reconnect and at every step between.
 
 ## Block C1 — The curve on screen
 
