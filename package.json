@@ -1,0 +1,45 @@
+{
+  "name": "@crash/root",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.26.0",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
+    "test": "turbo run test",
+    "test:root": "vitest run",
+    "lint": "eslint . && pnpm run lint:boundaries",
+    "lint:boundaries": "depcruise packages apps tools --config .dependency-cruiser.cjs",
+    "check": "pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test && pnpm run test:root && pnpm run format:check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9",
+    "@types/node": "^20",
+    "dependency-cruiser": "^16",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10",
+    "husky": "^9",
+    "lint-staged": "^16",
+    "prettier": "^3",
+    "turbo": "^2",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8",
+    "vitest": "catalog:"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

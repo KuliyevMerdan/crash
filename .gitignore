@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# local agent/editor launch config — absolute paths, machine-specific
+.claude/
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log

@@ -1,0 +1,273 @@
+# Crash — Roadmap
+
+Drafted **2026-08-17**. A **real-time multiplayer crash game** — Node + TypeScript server, Canvas 2D
+client, one WebSocket between them. Second portfolio project, standalone, sharing no code with
+`../slots`. Target role: game client / frontend developer at an iGaming studio.
+
+This file is the **task map**: blocks, their gates, and the order they land in. The *why* — the
+committed crash point, server-time cash-out, the shared curve, the dependency rules — lives in
+**[`CLAUDE.md`](CLAUDE.md)**, which is the canon you keep current as code lands.
+
+**Every block follows the house pattern:**
+
+> **protocol change → engine (headless tests) → server → client-core → renderer/UI → tests green →
+> tick off here + update `CLAUDE.md` (Rule 0) and delete the filled Gaps entries (Rule 1)**
+
+**S0 landed 2026-09-30** — the workspace, strict TypeScript, the dependency graph and purity rules
+enforced and proven against illegal fixtures, CI. The wire contract
+([`docs/protocol.md`](docs/protocol.md)) and both ADRs are pinned, so S1 shows ◐: its remaining boxes
+are implementation, plus the payload shapes the contract names but does not yet define
+([`CLAUDE.md`](CLAUDE.md) § Gaps).
+
+---
+
+## Task map
+
+| Block | Delivers | Gates on | Status |
+| --- | --- | --- | --- |
+| **S0** | Workspace, strict TS, boundary lint, purity tests, CI | — | ✅ (landed 2026-09-30) |
+| **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ◐ |
+| **S2** | `engine` — the round machine, pure and headless | S1 | ☐ |
+| **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ☐ |
+| **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ☐ |
+| **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ☐ |
+| **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ☐ |
+| **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ☐ |
+| **C3** | Player list, round history, the verification page | C1, S3 | ☐ |
+| **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ☐ |
+| **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ☐ |
+
+**Legend:** ☐ not started · ◐ in progress · ✅ landed (add the date, as `✅ (landed 2026-09-04)`).
+
+**Build order:** `S0 → S1 → S2 → (S3 · S4 in parallel) → C0 → C1 → C2 → C3 → P0 → P1`.
+S4 needs nothing after S2 and can fill any wait. C3's verification page needs `/fair/:index` from S3.
+
+---
+
+# Part I — Core & server
+
+## Block S0 — Workspace foundations
+
+_1 day. Nothing else may land before it._
+
+- [x] pnpm workspace + Turborepo, `packages/*`, `apps/*`, `tools/*`, catalog-pinned tool versions.
+- [x] Strict TypeScript — `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+      `dist` builds per package. **Diverged:** no project references — units resolve through
+      `dist/` + `exports`, ordered by Turborepo's `^build`, which references would only duplicate.
+      The base tsconfig carries no DOM lib and no Node types; three flavours opt in.
+- [x] `dependency-cruiser` encoding the graph in [`CLAUDE.md`](CLAUDE.md) § Dependency rules,
+      **including the forbidden path to `../slots`** (by path and by `@slot/*` name) — plus no Node
+      builtins or server libraries in any package, React only in `apps/web`, entry points only.
+      `tests/boundaries.test.ts` proves every rule fires against `config/fixtures/`.
+- [x] `tests/purity.test.ts` — no `Date.now`, `new Date`, `performance.now`, `Math.random`,
+      `fetch` or `process` inside `engine`, `curve`, `fair`, `money`, one fixture per package. `fs`
+      and `ws` are banned from every package by the boundary rules instead, which see imports.
+      `tests/type-safety.test.ts` proves the `any` / `!` / `as` bans alongside.
+- [x] ESLint + Prettier + husky/lint-staged; CI running `pnpm check` on push.
+- [x] Ten empty packages — seven in `packages/`, two apps, one tool — whose `src/index.ts` names
+      the block that fills each one.
+
+**Done when:** `pnpm check` is green on an empty workspace, and a deliberately illegal import
+(`renderer` → `protocol`) fails CI.
+
+## Block S1 — Contracts: protocol, money, curve, fair
+
+_2–3 days. Write this before anything moves on screen. Everything is downstream of it._
+
+- [x] **The wire contract is pinned** (2026-08-17) — every message, both directions, the three-class
+      error taxonomy, idempotency on `betId`, clock sync, and the decision log with rejected
+      alternatives, in [`docs/protocol.md`](docs/protocol.md).
+- [x] **The two load-bearing decisions are ADRs** (2026-08-17) —
+      [ADR-0001](docs/adr/ADR-0001-committed-crash-point.md) (committed crash point, hash chain) and
+      [ADR-0002](docs/adr/ADR-0002-server-time-cashout.md) (server receive time decides a cash-out).
+- [ ] `packages/money`: branded `Minor`, integer arithmetic, `Intl.NumberFormat` display.
+- [ ] `packages/curve`: `m(t)` and `t(m)` in hundredths of 1×, with the round-trip property test
+      (`t(m(t)) ≈ t` across the whole range) and behaviour pinned at the boundaries (`t = 0`,
+      quantisation steps, the largest representable multiplier).
+- [ ] `packages/fair`: chain generation, reverse consumption, `HMAC → crashPoint`, and
+      `verify(seed, previousHash) → boolean`. **Isomorphic** — a test that runs it under both Node
+      and a DOM environment.
+- [ ] Golden test: ~30 pinned seeds → crash points that never change. A diff here is either a bug or
+      a deliberate, documented break of every past verification.
+- [ ] `packages/protocol`: zod schemas + inferred types for all of §2, `GameConfig`, the round
+      snapshot, the error union. Importable by both a Node and a browser target.
+- [ ] **Decide chain length and rotation** — how many rounds per chain, and how the next commit is
+      published before the current one runs out ([`CLAUDE.md`](CLAUDE.md) § Gaps).
+
+**Done when:** a golden test pins the crash point for ~30 seeds, `fair` verifies a chain link in
+both runtimes, and the protocol schemas parse a hand-written fixture of every message.
+
+## Block S2 — The round machine
+
+_2–3 days. The part reviewers actually read._
+
+- [ ] `packages/engine`: `(state, event, now) → (state, effects)`. Phases as an exhaustive
+      discriminated union with a total `switch`. **The engine returns effects; it never emits.**
+- [ ] The crash moment computed **once** at round start via `t(crashPoint)`, then scheduled — not
+      polled per tick ([`docs/protocol.md`](docs/protocol.md) §11, D5).
+- [ ] Bet placement with validation against config limits and balance; `cancelBet` during `BETTING`
+      only.
+- [ ] Cash-out resolution on `receivedAt`, ordered within the round, `TOO_LATE` past the crash
+      moment.
+- [ ] **Auto cash-out fires server-side at exactly `t(autoCashOutAt)`**, producing the same effects
+      as a manual one plus `reason: "AUTO"`.
+- [ ] Idempotency on `betId` for both `placeBet` and `cashOut` — a replay returns the original
+      resolution, never a second bet and never a second payout.
+- [ ] Settlement: every bet resolved exactly once at crash, balances authoritative.
+- [ ] Tests: every legal transition and rejection of every illegal one · a cash-out one millisecond
+      either side of the crash moment · two cash-outs racing on the same `betId` · auto and manual
+      cash-out colliding · 10,000 seeded rounds with no state violation and no money created or
+      destroyed.
+
+**Done when:** a headless Vitest run plays 10,000 seeded rounds with bets, auto cash-outs, retries
+and late presses, and the sum of all balances plus house take is exactly conserved — with no socket
+anywhere in sight.
+
+## Block S3 — `apps/server`
+
+_2–3 days._
+
+- [ ] Fastify + `ws`. Every inbound frame parsed with its `@crash/protocol` schema before it reaches
+      the engine.
+- [ ] The round loop: `BETTING → RUNNING → CRASHED → pause → BETTING`, driven by timers, calling the
+      engine with the real clock.
+- [ ] **`receivedAt` stamped on frame receipt, before parsing or queuing** — server load must not
+      become a payout difference ([ADR-0002](docs/adr/ADR-0002-server-time-cashout.md)).
+- [ ] Broadcast: ticks every 100 ms, `betPlaced` / `playerCashedOut` fan-out, `crash` with the reveal.
+- [ ] Persistence behind one interface, in-memory + SQLite. **Chain state survives restart** and
+      resumes at the next unconsumed index.
+- [ ] `GET /fair/:chainIndex` for the verification page; health/readiness endpoints.
+- [ ] Server-side fault injection (latency, drop, disconnect) and dev-gated `forceCrashPoint`, with
+      the test that a production-mode server rejects a hand-crafted message carrying it.
+- [ ] Structured logs (pino) correlated on `roundId`; **a test that no log line ever contains an
+      unrevealed seed.**
+
+**Done when:** two `wscat` sessions join the same round, one cashes out and one doesn't, the crash
+reveal verifies against the chain commit, and a restart mid-round resumes the chain correctly.
+
+## Block S4 — `tools/sim`
+
+_1 day. Gates only on S2 — good filler work._
+
+- [ ] Run N rounds headlessly through `engine` + `fair`, no server, no sockets.
+- [ ] Report: crash distribution against the theoretical `P(crash ≥ m) ≈ 0.99/m`, realised house
+      edge, median and p99 crash point, longest observed streak below `2×`.
+- [ ] **Settle the instant-bust fraction** so realised edge matches `houseEdgeBps = 100`
+      ([`CLAUDE.md`](CLAUDE.md) § Gaps), and pin it with a tolerance test in CI at a smaller N.
+- [ ] Simulate flat strategies (always `1.5×`, always `2×`, always `10×`) and show they converge to
+      the same expected value minus edge — the claim from the README, made checkable.
+
+**Done when:** a 10⁶-round run reports realised edge within tolerance of the configured value, and
+the strategy comparison prints a table you would put in the README.
+
+---
+
+# Part II — Client
+
+## Block C0 — `client-core`
+
+_2 days. **No DOM in this package.**_
+
+- [ ] WebSocket client with typed message parsing on the way in, a typed event stream on the way out.
+- [ ] **Clock sync** — `ping`/`pong`, median-of-5 offset, re-sample every 30 s, `rtt` exposed
+      separately ([`docs/protocol.md`](docs/protocol.md) §8).
+- [ ] Reconnect with exponential backoff; `authenticate` → `hello` → full state restored. **No
+      recovery call, no replay** — learn `startedAt` and the curve follows.
+- [ ] Liveness: three missed `pong` intervals triggers a reconnect.
+- [ ] Idempotent send: a `placeBet` retried after a timeout reuses its `betId`; a `SYSTEM` error
+      never re-issues under a new one.
+- [ ] Tests against a fake socket: reconnect during each phase · a `hello` for a round that started
+      before the client existed · clock offset under asymmetric latency · a duplicate `betAccepted`.
+
+**Done when:** a headless test disconnects the client at 20 random points across 100 rounds and
+every reconnect lands in the correct phase with the correct bets, balance and multiplier.
+
+## Block C1 — The curve on screen
+
+_3 days._
+
+- [ ] `apps/web` bootstrap: Vite + React shell, `client-core` wired, connection states that are
+      real UI (connecting / reconnecting / desynced) rather than a spinner.
+- [ ] `packages/renderer`: Canvas 2D, delta-time driven, drawing from `curve(now − startedAt)` at
+      60 fps. **Ticks correct drift; they do not drive frames.**
+- [ ] **Viewport rescaling** — the exponential leaves the screen within seconds. Axis compression as
+      the multiplier climbs, smooth, never a jump ([`CLAUDE.md`](CLAUDE.md) § Gaps).
+- [ ] The counter: large, readable, quantised to the same hundredths as the wire so it can never
+      show a number the server would disagree with.
+- [ ] The crash: the curve breaks, the counter freezes red, the reveal appears. Then the pause and
+      the countdown to the next round.
+- [ ] `__ASSERT_CURVE__` in dev builds — throw on any tick disagreeing by more than one step (0.01×).
+
+**Done when:** it holds 60 fps on a throttled mobile profile through a `100×` round, survives a
+5-second network stall mid-curve without a visual jump, and two browsers side by side show the same
+multiplier to the naked eye.
+
+## Block C2 — Betting, cash-out, latency
+
+_2–3 days._
+
+- [ ] Bet panel: amount stepper against config limits, place during `BETTING`, cancel before it
+      closes, disabled states that explain themselves.
+- [ ] The cash-out button as the centre of the UI — stake, current value, one press.
+- [ ] **Latency disclosure.** The button shows what the press will *actually* land on given measured
+      `rtt`, before it is pressed ([ADR-0002](docs/adr/ADR-0002-server-time-cashout.md)). Getting a
+      multiplier you didn't see must never feel like a bug.
+- [ ] Auto cash-out input, with the honest explanation of why it is more accurate than a press.
+- [ ] Balance HUD driven **only** by authoritative balances from the wire. Never computed locally.
+- [ ] The result moment: won at `4.21×` / busted, unmissable, and gone before the next round opens.
+
+**Done when:** you can play thirty rounds on a 300 ms throttled connection without ever being
+surprised by the multiplier you got.
+
+## Block C3 — Players, history, verification
+
+_2 days._
+
+- [ ] Live player list: nick, stake, and the multiplier each one got, filling in as they cash out.
+      **Never `autoCashOutAt`** ([`docs/protocol.md`](docs/protocol.md) §11, D4).
+- [ ] Round history strip — the last ~30 crash points, colour-graded, clickable.
+- [ ] **The verification page.** Paste a round, see the seed, the chain link, the HMAC and the
+      recomputed crash point — running `packages/fair` **in the browser**, the same code the server
+      used. Walk the chain back to the published commit.
+- [ ] The 18+/play-money notice, and a short "how this works" panel linking the ADRs.
+
+**Done when:** a stranger can pick a round they just lost, verify it in the browser, and see for
+themselves that the result predated their bet.
+
+---
+
+# Part III — Hardening & packaging
+
+## Block P0 — Hardening
+
+_2 days._
+
+- [ ] Load test: 500 concurrent sockets in one round. Measure broadcast fan-out latency and assert
+      **`receivedAt` accuracy does not degrade under load** — the ADR-0002 promise, tested.
+- [ ] Packet loss and stalls: 20% drop, 3-second freezes, half-open connections. The client must
+      recover without a visible jump and without a wrong balance.
+- [ ] **Clock drift and hostile clocks**: a client with a clock an hour off must play correctly, and
+      must not be able to affect a payout by lying about time.
+- [ ] Reconnect storm — 200 clients reconnecting at once mid-round.
+- [ ] Measure whether `bettingPhaseMs = 7000` is enough for a 300 ms client
+      ([`CLAUDE.md`](CLAUDE.md) § Gaps) and set the real value.
+- [ ] Debug panel exposing the server's fault injection, so a reviewer can break the network on the
+      live demo and watch it recover.
+
+**Done when:** a 500-client 30-minute soak with injected faults ends with zero money created or
+destroyed and zero clients in a wrong state.
+
+## Block P1 — Packaging
+
+_1–2 days._
+
+- [ ] Deploy server + web (Fly / Railway), SQLite on a volume so the chain survives a redeploy.
+- [ ] Playwright E2E in CI with a forced crash point: **two browser contexts in one round**, one
+      cashing out, one busting, both asserting the same multiplier at the same moment.
+- [ ] README with a GIF above the fold, the two ADRs summarised in a paragraph each, the house-edge
+      table from S4, and a link to a round anyone can verify.
+- [ ] `docs/architecture.md` — the round loop, the clock, and the one diagram that explains why the
+      client draws its own curve.
+
+**Done when:** a stranger can open the live link, play a round, break the network from the debug
+panel, watch it recover, and verify the result they just got — in under two minutes.

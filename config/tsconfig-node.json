@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "@crash Node — apps/server and tools/sim, the only code that owns a process",
+  "extends": "./tsconfig-base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}

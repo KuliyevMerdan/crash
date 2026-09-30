@@ -1,0 +1,13 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+  - 'tools/*'
+
+# One version per tool, referenced from every package as `"catalog:"`. A single edit here moves the
+# whole workspace, and two packages on two versions of zod stops being possible.
+catalog:
+  typescript: ^5
+  vitest: ^3
+
+onlyBuiltDependencies:
+  - esbuild
