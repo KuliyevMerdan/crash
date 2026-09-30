@@ -17,12 +17,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "start": "node dist/main.js"
   },
   "dependencies": {
-    "@crash/fair": "workspace:*",
     "@crash/curve": "workspace:*",
-    "@crash/engine": "workspace:*"
+    "@crash/engine": "workspace:*",
+    "@crash/fair": "workspace:*",
+    "@crash/money": "workspace:*",
+    "@crash/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20",

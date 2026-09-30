@@ -51,7 +51,12 @@ module.exports = {
     mayOnlyDependOn('packages', 'renderer', 'curve'),
     mayOnlyDependOn('apps', 'server', 'engine', 'protocol', 'money', 'curve', 'fair'),
     mayOnlyDependOn('apps', 'web', 'client-core', 'renderer', 'protocol', 'money', 'fair'),
-    mayOnlyDependOn('tools', 'sim', 'fair', 'curve', 'engine'),
+    /**
+     * The sim reads the game — the chain, the curve, the engine, the money it stakes and the config
+     * type it runs under — and nothing that serves or draws it. S4 added `money` and `protocol` to
+     * the planned three: a sim that cannot stake cannot measure a return.
+     */
+    mayOnlyDependOn('tools', 'sim', 'fair', 'curve', 'engine', 'money', 'protocol'),
 
     // The hard rules on top of the graph.
     {

@@ -294,13 +294,19 @@ Computed in integer (`BigInt`) arithmetic — no float touches it. With `X = r /
 `[0, 1)` and `E = houseEdgeBps / 10000`, the unclamped multiplier is `(1 − E) / (1 − X)`, so
 
 - `P(crash ≥ m) = (1 − E) / m` for every `m ≥ 1.00×` the clamp leaves alone — `0.99 / m` at 1%;
-- the rounds that bust instantly at `1.00×` are exactly the `E` fraction with `X < E`;
+- a round busts instantly — crash point `1.00×`, `RUNNING` for zero milliseconds — with probability
+  `1 − (1 − E)/1.01`, **not** `E`: the `E` fraction with `X < E`, plus every multiplier in
+  `[1.00×, 1.01×)` that floors to `100`. That is 1.98% at a 1% edge. (S1 wrote "exactly `E`" here;
+  S4's simulation checks the corrected figure. The expected return below is untouched, because a
+  1.01× target wins exactly when the crash point is `101` or more.);
 - **every cash-out target has the same expected return, `1 − E`** — a player at `1.5×` and a player
   at `10×` pay the same edge. The edge is in the distribution, not a fee and not a thumb on the
   scale.
 
-`tools/sim` asserts all three empirically over millions of rounds (**S4**); the derivation is here so
-that a failure there is a bug to find, not a constant to tune.
+`tools/sim` checks all three empirically (**S4**): over a million rounds every flat strategy from
+1.01× to 100× returns 99% within 1σ, every threshold of the distribution sits within 2.3σ, and
+instant busts come in at 1.99% against 1.98%. The derivation is here so that a failure there is a
+bug to find, not a constant to tune — and S4 found one before it ran (D14).
 
 `MAX = 100000000` (`1,000,000.00×`) keeps every multiplier and every payout a safe integer in
 JavaScript. It costs the edge nothing anyone can collect: auto cash-out stops at
@@ -356,9 +362,12 @@ to bust. A round whose crash point is `100` busts at `startedAt` itself: `RUNNIN
 milliseconds, and no press can beat it. `CRASHED` lasts `config.crashedPhaseMs`, then the next
 `bettingOpen`.
 
-Auto cash-outs fire at `startedAt + t(autoCashOutAt)`. One that lands at or after the crash moment
-does not fire — the curve never showed that multiplier. At the same millisecond, the crash wins: a
-cash-out is worth `m(receivedAt − startedAt)` only while `receivedAt < startedAt + t(crashPoint)`.
+**An auto cash-out wins if and only if its target is at or below the crash point**, and pays
+exactly its target, at `startedAt + t(autoCashOutAt)` (D14). The comparison is between values, not
+moments: past ~66× the curve moves more than a hundredth per millisecond, so a target just below
+the crash point can first be reached *at* the crash moment — it still fires, before the bust. A
+**manual** press is the other way round: it is worth `m(receivedAt − startedAt)` only while
+`receivedAt < startedAt + t(crashPoint)`; at the crash millisecond itself the crash wins.
 
 ## 5. Recovery
 
@@ -532,3 +541,10 @@ unequal as strings.
 overriding the crash point of a real chain round (its reveal would then fail verification — a
 forced round passing itself off as a broken real one) and a separate dev chain (it would verify,
 which is worse: a typed-in number with a valid proof).
+
+**D14 — Does an auto cash-out at the crash point win?** Yes: it wins iff `autoCashOutAt ≤
+crashPoint`. §3.2's promise — every target returns `1 − E` — rests on `P(crash ≥ x) = (1 − E)/x`;
+winning only on `crash > x` would pay `(1 − E)·x/(x + 1)`, a 2% edge at a 1.01× target instead of
+1%. S2 had it the wrong way, deciding on moments (`t(x) < t(crashPoint)`), which also lost targets
+the curve passed in the crash millisecond. Found in S4, before any simulation ran, by asking what
+the simulation would have to show.

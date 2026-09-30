@@ -90,3 +90,40 @@ function toSeedBytes(seed: string): Uint8Array {
   if (!isHash(seed)) throw new RangeError('a seed is 64 lowercase hex characters');
   return hexToBytes(seed);
 }
+
+export interface ChainRound {
+  readonly chainIndex: number;
+  readonly seed: string;
+  readonly previousHash: string;
+}
+
+/**
+ * Every round of a chain, in the order rounds consume it — for walking a whole chain, as
+ * `tools/sim` does. `seedAt` with checkpoints costs up to `checkpointEvery` hashes per call, which is
+ * right for a server opening one round every few seconds and ruinous for a million in a row; this
+ * keeps every link in one buffer (32 bytes each — 32 MB for a million) and hashes each exactly once.
+ */
+export function chainRounds(
+  s0: string,
+  length: number,
+): { readonly commit: string; rounds(): IterableIterator<ChainRound> } {
+  if (!Number.isSafeInteger(length) || length < 2) {
+    throw new RangeError(`a chain needs at least two links: ${length}`);
+  }
+  const links = new Uint8Array(32 * length);
+  links.set(toSeedBytes(s0), 0);
+  for (let i = 1; i < length; i += 1) {
+    links.set(sha256(links.subarray((i - 1) * 32, i * 32)), i * 32);
+  }
+  const at = (position: number) => bytesToHex(links.subarray(position * 32, position * 32 + 32));
+
+  return {
+    commit: at(length - 1),
+    *rounds() {
+      for (let chainIndex = 1; chainIndex < length; chainIndex += 1) {
+        const position = length - 1 - chainIndex;
+        yield { chainIndex, seed: at(position), previousHash: at(position + 1) };
+      }
+    },
+  };
+}

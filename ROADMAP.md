@@ -19,7 +19,8 @@ enforced and proven against illegal fixtures, CI. **S1 landed 2026-09-30** — t
 it: `protocol`, `money`, `curve`, `fair`. **S2 landed 2026-09-30** — `packages/engine`, the round
 machine, conserving every minor unit over 10,000 seeded rounds. **S3 landed 2026-09-30** —
 `apps/server`: the loop, SQLite persistence that resumes a round mid-flight, the fairness
-endpoints, the dev surface. **S4 and C0 are next.**
+endpoints, the dev surface. **S4 landed 2026-09-30** — `tools/sim`: a million rounds, every flat
+strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). **C0 is next.**
 
 ---
 
@@ -31,7 +32,7 @@ endpoints, the dev surface. **S4 and C0 are next.**
 | **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ✅ (landed 2026-09-30) |
 | **S2** | `engine` — the round machine, pure and headless | S1 | ✅ (landed 2026-09-30) |
 | **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ✅ (landed 2026-09-30) |
-| **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ☐ |
+| **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ✅ (landed 2026-09-30) |
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ☐ |
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ☐ |
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ☐ |
@@ -102,8 +103,9 @@ _2–3 days. Write this before anything moves on screen. Everything is downstrea
       document's tables and the schemas to the same list.
 - [x] **Chain length and rotation decided** — a million links, the next chain published with
       50,000 left, `GET /fair/chains` (docs/protocol.md §3.3, D11). The crash-point formula
-      turned out to fix the instant-bust fraction analytically at exactly the edge (§3.2), so that
-      gap closed too; S4 confirms it rather than tunes it.
+      turned out to fix the edge analytically (§3.2), so that gap closed too; S4 confirms it rather
+      than tunes it. (S1 also claimed the instant-bust fraction equals the edge; S4 corrected it to
+      `1 − (1 − E)/1.01`.)
 
 **Done when:** a golden test pins the crash point for ~30 seeds, `fair` verifies a chain link in
 both runtimes, and the protocol schemas parse a hand-written fixture of every message.
@@ -174,17 +176,23 @@ two restarts on SQLite — mid-round, and after the crash moment had passed.
 
 _1 day. Gates only on S2 — good filler work._
 
-- [ ] Run N rounds headlessly through `engine` + `fair`, no server, no sockets.
-- [ ] Report: crash distribution against the theoretical `P(crash ≥ m) ≈ 0.99/m`, realised house
-      edge, median and p99 crash point, longest observed streak below `2×`.
-- [ ] **Confirm the edge empirically** — the instant-bust fraction and the realised edge both
-      equal `houseEdgeBps` by derivation (docs/protocol.md §3.2); pin that with a tolerance test in
-      CI at a smaller N, so a regression in `fair` shows up as a number, not a hunch.
-- [ ] Simulate flat strategies (always `1.5×`, always `2×`, always `10×`) and show they converge to
-      the same expected value minus edge — the claim from the README, made checkable.
+- [x] Run N rounds headlessly through `engine` + `fair`, no server, no sockets — a million in ~13 s,
+      the chain walked once by `fair.chainRounds` rather than seeked link by link.
+- [x] Report: crash distribution against `P(crash ≥ m) = (1 − E)/m`, realised house edge, median and
+      p99 crash point, longest observed streak below `2×` — every rate beside its formula and σ.
+- [x] **Confirm the edge empirically**, with a tolerance test in CI at 50,000 rounds (4σ per rate,
+      seeded). The instant-bust fraction turned out *not* to equal the edge — it is
+      `1 − (1 − E)/1.01` ≈ 1.98% — and docs/protocol.md §3.2 is corrected.
+- [x] Simulate flat strategies (always `1.01×`, `1.5×`, `2×`, `10×`, `100×`) and show they converge
+      to the same `1 − E`. **Found on the way (D14):** S2 paid an auto cash-out only if its moment
+      preceded the crash moment, so a target equal to the crash point lost — a 1.01× strategy
+      returned 98.1%. The rule is now "wins iff target ≤ crash point", and the sim counts every
+      auto cash-out that breaks it (zero).
 
 **Done when:** a 10⁶-round run reports realised edge within tolerance of the configured value, and
-the strategy comparison prints a table you would put in the README.
+the strategy comparison prints a table you would put in the README. **Met 2026-09-30:** pooled
+edge 0.854% against 1% (σ 0.208%, z −0.70); the tables are in [`CLAUDE.md`](CLAUDE.md) § Testing
+layers, ready for P1's README.
 
 ---
 

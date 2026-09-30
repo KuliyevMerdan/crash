@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createChain, previousHashOf, verifyLink, verifyToCommit } from './index.js';
+import { chainRounds, createChain, previousHashOf, verifyLink, verifyToCommit } from './index.js';
 
 const S0 = '00'.repeat(32);
 
@@ -63,5 +63,25 @@ describe('verification', () => {
 
   it('previousHashOf is one step down the chain', () => {
     expect(previousHashOf(chain.seedAt(1))).toBe(chain.commit);
+  });
+});
+
+describe('chainRounds', () => {
+  it('walks the same chain createChain builds, round by round, in consumption order', () => {
+    const chain = createChain(S0, 700, { checkpointEvery: 50 });
+    const walk = chainRounds(S0, 700);
+    expect(walk.commit).toBe(chain.commit);
+    const rounds = [...walk.rounds()];
+    expect(rounds).toHaveLength(699);
+    for (const round of rounds) {
+      expect(round.seed).toBe(chain.seedAt(round.chainIndex));
+      expect(verifyLink(round.seed, round.previousHash)).toBe(true);
+    }
+    expect(rounds[0]?.previousHash).toBe(chain.commit);
+    expect(rounds[698]?.seed).toBe(S0);
+  });
+
+  it.each([1, 0, 2.5])('refuses a length of %d', (length) => {
+    expect(() => chainRounds(S0, length)).toThrow(RangeError);
   });
 });

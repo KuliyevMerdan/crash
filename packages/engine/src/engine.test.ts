@@ -352,20 +352,44 @@ describe('auto cash-out fires server-side at exactly t(autoCashOutAt)', () => {
     ]);
   });
 
-  it('never fires at or past the crash point', () => {
+  it('wins at exactly the crash point, and not a hundredth above it (§4, D14)', () => {
+    // P(crash ≥ x) = (1 − E) / x is what gives every target the same expected return (§3.2), so
+    // an auto cash-out at the crash point itself must win — the curve did reach it.
     const { table, crashPoint } = tableWith((p) => p >= 200 && p < 90_000);
     table.bet('alice', B1, 500, crashPoint);
-    table.bet('bob', B2, 500, crashPoint - 1);
+    table.bet('bob', B2, 500, crashPoint + 1);
     table.runToCrash();
-    const types = table.log
-      .filter((e) => e.kind === 'send' && e.playerId === 'alice')
-      .map((e) => e.message.type);
-    expect(types).toEqual(['betAccepted']);
-    expect(
-      table.log.some(
-        (e) => e.kind === 'send' && e.playerId === 'bob' && e.message.type === 'cashOutResult',
-      ),
-    ).toBe(true);
+    const results = (who: string) =>
+      table.log.filter(
+        (e) => e.kind === 'send' && e.playerId === who && e.message.type === 'cashOutResult',
+      );
+    expect(results('alice')).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({ reason: 'AUTO', multiplier: crashPoint }),
+      }),
+    ]);
+    expect(results('bob')).toEqual([]);
+  });
+
+  it('wins below the crash point even when the curve passes both in the same millisecond', () => {
+    // Past ~66×, one millisecond moves the curve more than a hundredth: find a target below the
+    // crash point that is first reached at the crash moment itself.
+    const { table, crashPoint, startedAt } = tableWith((p) => p >= 20_000 && p < 90_000);
+    let target = crashPoint - 1;
+    while (target > 101 && elapsedAt(K, target) === elapsedAt(K, crashPoint)) target -= 1;
+    target += 1; // the lowest target sharing the crash millisecond
+    expect(target).toBeLessThan(crashPoint);
+    table.bet('alice', B1, 100, target);
+    table.advance(startedAt + elapsedAt(K, crashPoint));
+    expect(table.messages().map((m) => m.type)).toEqual([
+      'roundStart',
+      'cashOutResult',
+      'playerCashedOut',
+      'crash',
+    ]);
+    expect(table.sentTo('alice')).toEqual([
+      expect.objectContaining({ reason: 'AUTO', multiplier: target }),
+    ]);
   });
 
   it('beats a manual press in the same millisecond, and the press replays it with reason AUTO', () => {

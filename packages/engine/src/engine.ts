@@ -127,9 +127,12 @@ function start(
   const autos: AutoCashOut[] = [];
   for (const bet of round.bets.values()) {
     if (bet.status !== 'OPEN' || bet.autoCashOutAt === null) continue;
-    const fireAt = startedAt + elapsedAt(s.curve, bet.autoCashOutAt);
-    // An auto cash-out due at or after the crash moment never fires: the curve never showed it.
-    if (fireAt < crashAt) autos.push({ betId: bet.betId, fireAt });
+    // A target at or below the crash point wins — the curve reached it — and one above never does
+    // (§4, D14). Decided on the values, not the moments: past ~66× the curve moves more than a
+    // hundredth per millisecond, so a target just under the crash point is first reached *at* the
+    // crash moment. It fires there, before the bust, because settleDue fires autos first.
+    if (bet.autoCashOutAt > round.crashPoint) continue;
+    autos.push({ betId: bet.betId, fireAt: startedAt + elapsedAt(s.curve, bet.autoCashOutAt) });
   }
   autos.sort((a, b) => a.fireAt - b.fireAt); // stable: equal moments keep placement order
 

@@ -5,14 +5,17 @@ repository.
 
 ## Project status
 
-> ⚠️ **The server plays; no client draws it yet.** **S0–S3 landed 2026-09-30.** S0: the workspace,
+> ⚠️ **The server plays and the edge is measured; no client draws it yet.** **S0–S4 landed
+> 2026-09-30.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
 > zod schema, the curve and its exact inverse, the crash point pinned against an independent
 > implementation, the chain. S2: `packages/engine`, the round machine — pure, and proven over 10,000
 > seeded rounds to conserve every minor unit. S3: `apps/server` — Fastify + `ws`, the round loop,
 > SQLite persistence that survives a restart mid-round, the fairness endpoints, the dev surface.
-> ADR-0001 and ADR-0002 are accepted. **S4 (`tools/sim`) and C0 (`client-core`) are next.**
+> S4: `tools/sim` — a million rounds through the engine and the chain in ~13 s, every flat strategy
+> returning 99% within 1σ; it found that S2 paid auto cash-outs wrong at the crash point (D14).
+> ADR-0001 and ADR-0002 are accepted. **C0 (`client-core`) is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -89,7 +92,7 @@ fills them.
 | `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
 | `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
 | `apps/web` | Vite + React shell around `renderer` + `client-core` | C1–C3 |
-| `tools/sim` | N-million-round run: crash distribution, realised house edge, RTP report | S4 |
+| `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
 
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
 renderer adds nothing to read, and this game is one curve, one counter and a burst. Raw Canvas 2D is
@@ -115,7 +118,7 @@ client-core ──▶ protocol, money, curve
 renderer ──▶ curve
 apps/server ──▶ engine, protocol, money, curve, fair
 apps/web ──▶ client-core, renderer, protocol, money, fair
-tools/sim ──▶ fair, curve, engine
+tools/sim ──▶ fair, curve, engine, money, protocol
 ```
 
 Hard rules on top of the graph:
@@ -179,6 +182,12 @@ How the engine (**S2**) is shaped, because the server and the sim both lean on i
   target, even when the curve jumped past it in that millisecond). And an event received at `now`
   is ordered after everything due before it, which is ADR-0002's "receive order is the order" in
   code: at the same millisecond the crash beats a press and an auto cash-out beats a manual one.
+- **An auto cash-out wins iff `autoCashOutAt ≤ crashPoint`** — decided on the values when the round
+  starts, not on the moments (docs/protocol.md §4, D14). S2 compared moments, `t(target) <
+  t(crashPoint)`, which lost every target equal to the crash point and every target the curve
+  passed in the crash millisecond: a 1.01× strategy returned 98.1% instead of 99% (z = −14 over
+  50,000 rounds, measured by accident on a stale build). S4 found it by asking what the simulation
+  would have to show before running it; the engine test pins both cases.
 - **The caller does two things:** hands in events with a non-decreasing `now` (backwards is an
   `EngineError`), and opens rounds, because it holds the chain and the engine only verifies the link
   (`openRound` refuses a seed that does not hash to its claimed `previousHash`). `nextDeadline` says
@@ -236,12 +245,39 @@ How the server (**S3**) is shaped around it:
 | Golden | 30 seeds → crash points, plus other edges and a ten-link chain — **computed by an independent Python implementation**, so the golden values pin correctness, not just stability. Also run in happy-dom (`isomorphic.test.ts`) | ✅ S1 |
 | Contract sync | `tests/protocol-doc.test.ts`: the §2 message table and §6 error table name exactly what the schemas accept · `tests/constants.test.ts`: the multiplier range agrees across `curve`, `fair`, `protocol` | ✅ S1 |
 | Engine | every phase transition and every player refusal · a press 1 ms either side of the crash · racing presses on one `betId` · auto against manual in the same and the previous millisecond · auto cash-outs paying their target when processed late · retries across the round boundary · nothing secret in any effect, snapshot or tick before the crash · and **10,000 seeded rounds** (≈63k bets, ≈22k manual wins, ≈11k late presses, ≈6k retries) with money audited after every step and every bet resolved exactly once | ✅ S2 |
-| Statistical | `tools/sim` over ≥10⁶ rounds: `P(crash ≥ m) ≈ 0.99/m`, realised edge within tolerance of `houseEdgeBps`, the same expected return for every cash-out target (docs/protocol.md §3.2) | S4 |
+| Statistical | `tools/sim`: in CI, 50,000 seeded rounds with every rate within 4σ of its formula, zero auto cash-outs off the D14 rule, money conserved, and a check that S2's tie rule would sit >9σ out; by hand, `pnpm sim` over a million (below) | ✅ S4 |
 | Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 
 The statistical layer is the one that would be missing from a weaker version of this project, and
-it is the one that proves the house edge is where ADR-0001 says it is.
+it is the one that proves the house edge is where ADR-0001 says it is. What it measured
+(`pnpm sim -- --rounds 1000000`, 2026-09-30, the demo's config):
+
+**1,000,000 rounds** through `engine` + `fair` · house edge 100 bps · chain commit `3eb73ea74f9a99df…` · 13.4 s
+
+| Flat strategy (auto cash-out) | Bets | Win rate | RTP | Expected | σ | z |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| always 1.01× | 1,000,000 | 98.01% | 98.987% | 99.0% | 0.014% | -0.95 |
+| always 1.50× | 1,000,000 | 65.97% | 98.949% | 99.0% | 0.071% | -0.72 |
+| always 2.00× | 1,000,000 | 49.48% | 98.955% | 99.0% | 0.100% | -0.45 |
+| always 10.00× | 1,000,000 | 9.90% | 98.961% | 99.0% | 0.299% | -0.13 |
+| always 100.00× | 1,000,000 | 1.00% | 99.880% | 99.0% | 0.990% | 0.89 |
+
+Realised house edge, all bets pooled: **0.854%** against 1.0% (σ 0.208%, z -0.70) — 4,269,034 of 500,000,000 staked.
+
+| P(crash ≥ m) | Observed | Expected `(1 − E)/m` | z |
+| --- | ---: | ---: | ---: |
+| 1.01× | 98.007% | 98.020% | -0.95 |
+| 1.50× | 65.966% | 66.000% | -0.72 |
+| 2.00× | 49.477% | 49.500% | -0.45 |
+| 5.00× | 19.772% | 19.800% | -0.70 |
+| 10.00× | 9.896% | 9.900% | -0.13 |
+| 100.00× | 0.999% | 0.990% | 0.89 |
+| 1000.00× | 0.106% | 0.099% | 2.29 |
+| instant bust (1.00×) | 1.993% | 1.980% | 0.95 |
+
+Median crash 1.97× · p99 99.90× · max 1000000.00× · longest run below 2× 19 rounds.
+Auto cash-outs off the D14 rule: 0 · money conserved: yes.
 
 ## Commands
 
@@ -270,8 +306,10 @@ duplicate what Turborepo already orders. `build` therefore runs before `typechec
 `pnpm dev:server` runs `apps/server` in watch mode (development: in-memory store, faults on, a
 fresh chain each start unless `CRASH_DEV_CHAIN_SEED` is set). Its knobs are environment variables
 read in `apps/server/src/config.ts` — `CRASH_DB`, `CRASH_GROWTH_RATE`, `CRASH_BETTING_MS`,
-`CRASH_CHAIN_LENGTH` and friends. Still to come: `pnpm dev` (server + web) with **C1**, and
-`pnpm sim -- --rounds 1000000` (distribution + house-edge report) with **S4**.
+`CRASH_CHAIN_LENGTH` and friends. `pnpm sim -- --rounds 1000000 [--seed <hex>] [--json]` builds the
+sim **and everything it depends on** (Turborepo) before running it — S4 first ran it against a
+stale engine `dist/` and measured the bug it had already fixed. Still to come: `pnpm dev` (server +
+web) with **C1**.
 
 **Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
 compiler refuses one that does not. Found in S1: under `Bundler` resolution `tsc` emitted

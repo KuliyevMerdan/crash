@@ -278,6 +278,12 @@ importers:
       '@crash/fair':
         specifier: workspace:*
         version: link:../../packages/fair
+      '@crash/money':
+        specifier: workspace:*
+        version: link:../../packages/money
+      '@crash/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       '@types/node':
         specifier: ^20

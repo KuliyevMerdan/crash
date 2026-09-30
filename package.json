@@ -10,6 +10,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev:server": "pnpm --filter @crash/server dev",
+    "sim": "turbo run build --filter=@crash/sim --output-logs=errors-only && pnpm --filter @crash/sim start",
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
     "test:root": "vitest run",

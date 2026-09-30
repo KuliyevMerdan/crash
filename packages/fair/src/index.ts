@@ -9,6 +9,8 @@ export { MIN_CRASH_POINT, MAX_CRASH_POINT, crashPoint, crashPointFromBits } from
 export {
   type Chain,
   type ChainOptions,
+  type ChainRound,
+  chainRounds,
   createChain,
   previousHashOf,
   verifyLink,
