@@ -6,8 +6,10 @@ packages:
 # One version per tool, referenced from every package as `"catalog:"`. A single edit here moves the
 # whole workspace, and two packages on two versions of zod stops being possible.
 catalog:
+  happy-dom: ^20
   typescript: ^5
   vitest: ^3
+  zod: ^4
 
 onlyBuiltDependencies:
   - esbuild

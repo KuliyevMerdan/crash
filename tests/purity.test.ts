@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eslint } from './lint-runner';
+import { eslint } from './lint-runner.js';
 
 /**
  * Proves the purity rules fire, in every package they are meant to hold.

@@ -5,12 +5,13 @@ repository.
 
 ## Project status
 
-> ⚠️ **The workspace exists; the game does not.** **S0 landed 2026-09-30**: the pnpm + Turborepo
-> workspace, strict TypeScript, the dependency graph and the purity rules enforced and *proven to
-> fire* against deliberately illegal fixtures, and CI running `pnpm check`. All ten units exist as
-> empty shells, each already policed. The wire contract ([`docs/protocol.md`](docs/protocol.md)) is
-> pinned, ADR-0001 and ADR-0002 are accepted, and [`ROADMAP.md`](ROADMAP.md) maps the blocks.
-> **S1 — the contracts: `protocol`, `money`, `curve`, `fair` — is next.**
+> ⚠️ **The contracts exist; the round does not.** **S0 landed 2026-09-30** — the workspace, strict
+> TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. **S1 landed
+> the same day** — `protocol`, `money`, `curve` and `fair`, the four packages everything downstream
+> reads: every message in [`docs/protocol.md`](docs/protocol.md) as a zod schema with a fixture, the
+> curve and its exact inverse, the crash point pinned by a golden test against an independent
+> implementation, the chain, and verification that runs unchanged in a DOM environment. ADR-0001 and
+> ADR-0002 are accepted. **S2 — the round machine, `packages/engine` — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -72,15 +73,16 @@ There is no catch-up, no replay, no reconciliation.
 
 ### Packages
 
-All ten exist since **S0** as empty shells — a `src/index.ts` naming its block, a build to `dist/`,
-and the dependency rules already applied. The right-hand column is the block that fills each.
+All ten exist since **S0**, with the dependency rules applied from the first line; the four **S1**
+packages are implemented, the other six are still shells whose `src/index.ts` names the block that
+fills them.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
-| `packages/protocol` | zod schemas + inferred types for every message in [`docs/protocol.md`](docs/protocol.md); the three-class error taxonomy | S1 |
-| `packages/money` | branded `Minor`, integer arithmetic, `Intl.NumberFormat` display | S1 |
-| `packages/curve` | `m(t)`, `t(m)`, quantisation to hundredths of 1×. Pure, tiny, load-bearing | S1 |
-| `packages/fair` | hash chain, `HMAC → crashPoint`, chain-link verification. **Isomorphic** | S1 |
+| `packages/protocol` | zod schemas + inferred types for every message in [`docs/protocol.md`](docs/protocol.md), `parseClientMessage` / `parseServerMessage` with invariant 9 built in (unknown fields stripped, unknown types dropped, a bad known type `malformed`); the error taxonomy with the class a function of the code | ✅ S1 |
+| `packages/money` | branded `Minor` (the only way in is `minor()`, a safe integer or a throw), exact `add`/`sub`, `payout = floor(stake × m / 100)` refusing any inexact product, `formatMinor` for display | ✅ S1 |
+| `packages/curve` | `multiplierAt` (`m`), `elapsedAt` (its exact inverse in integer ms, walked to the boundary), `smoothMultiplierAt` for drawing only, `MAX_MULTIPLIER`. Pure, tiny, load-bearing | ✅ S1 |
+| `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt`, `createChain` with checkpoints, `verifyLink`, `verifyToCommit`. **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 |
 | `packages/engine` | the round machine — phases, bets, cash-out resolution, settlement. Pure | S2 |
 | `packages/client-core` | WebSocket client, clock sync, reconnect, typed event stream out. **No DOM** | C0 |
 | `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
@@ -91,6 +93,11 @@ and the dependency rules already applied. The right-hand column is the block tha
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
 renderer adds nothing to read, and this game is one curve, one counter and a burst. Raw Canvas 2D is
 the honest tool and shows the layer under the framework.
+
+**What S1 measured.** A million-link chain builds in ≈0.7 s with plain-TypeScript SHA-256; with a
+checkpoint every 1,000 links, any seed is ≈0.3 ms away; walking the far end of a chain back to its
+commit — the verification page's worst case — is ≈0.7 s. None of it needs `node:crypto`, which is
+why none of it uses it.
 
 ### Dependency rules — enforced, not suggested
 
@@ -168,10 +175,11 @@ every past verification ([ADR-0001](docs/adr/ADR-0001-committed-crash-point.md))
 
 | Layer | What it proves | Block |
 | --- | --- | --- |
-| Unit | `curve` round-trips (`t(m(t)) ≈ t`), `fair` chain links, `money` arithmetic | S1 |
-| Golden | the crash point for ~30 pinned seeds never changes | S1 |
+| Unit | `curve`: the inverse lands on the boundary for every step to 100× and for random targets to the ceiling on four curves, `t(m(t)) ≤ t` showing the same value · `fair`: NIST and RFC 4231 vectors, chain links, forged seeds refused · `money`: exact arithmetic, overflow refused · `protocol`: a fixture of every message, invariant 9, class-of-code | ✅ S1 |
+| Golden | 30 seeds → crash points, plus other edges and a ten-link chain — **computed by an independent Python implementation**, so the golden values pin correctness, not just stability. Also run in happy-dom (`isomorphic.test.ts`) | ✅ S1 |
+| Contract sync | `tests/protocol-doc.test.ts`: the §2 message table and §6 error table name exactly what the schemas accept · `tests/constants.test.ts`: the multiplier range agrees across `curve`, `fair`, `protocol` | ✅ S1 |
 | Engine | every legal transition, every illegal one rejected, idempotent replay, cash-out ordering | S2 |
-| Statistical | `tools/sim` over ≥10⁶ rounds: `P(crash ≥ m) ≈ 0.99/m`, realised edge within tolerance of `houseEdgeBps` | S4 |
+| Statistical | `tools/sim` over ≥10⁶ rounds: `P(crash ≥ m) ≈ 0.99/m`, realised edge within tolerance of `houseEdgeBps`, the same expected return for every cash-out target (docs/protocol.md §3.2) | S4 |
 | Integration | a real socket, a real round, fault injection | S3, P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 
@@ -205,6 +213,12 @@ duplicate what Turborepo already orders. `build` therefore runs before `typechec
 Still to come: `pnpm dev` (server + web, watch mode) with **S3/C1**, and
 `pnpm sim -- --rounds 1000000` (distribution + house-edge report) with **S4**.
 
+**Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
+compiler refuses one that does not. Found in S1: under `Bundler` resolution `tsc` emitted
+extensionless imports that Vite and Vitest resolve and plain Node does not — `apps/server` and
+`tools/sim` would have failed on their first `import '@crash/fair'`. Test data a package ships to
+its own tests lives in `src/__fixtures__/`, which the build excludes.
+
 A pre-commit hook (husky → lint-staged) runs ESLint and Prettier over staged files. `turbo.json`
 sets `agentGuidance: false`: Turborepo ≥ 2.11 otherwise writes an `AGENTS.md` whenever it detects an
 AI agent, and this file is where the repository's guidance lives.
@@ -214,19 +228,16 @@ AI agent, and this file is where the repository's guidance lives.
 Log what you hit here as you hit it ([Rule 1](#rule-1--log-the-gaps-you-hit)). Open at time of
 writing:
 
-- **Chain length and rotation.** How many rounds per chain, and the operational story for publishing
-  the next commit before the current chain runs out. Decide in **S1**, before the chain generator is
-  written.
-- **Exact crash-point constants.** The formula shape is pinned; the instant-bust fraction that
-  realises `houseEdgeBps = 100` is not. **S4** settles it empirically — do not guess it in S1 and do
-  not let S1 block on it.
 - **Betting-phase length under real latency.** 7 s is a placeholder. **P0** measures whether a
   300 ms client can reliably place a bet in it.
-- **Message payloads the contract names but does not define.** `round.bets` (§2.3) and
-  `hello.myBets` (§2.2) point at bet-entry shapes no section gives; `bettingOpen` and `roundStart`
-  have no payload; `betRejected` sits in the §2 table while §2.4 answers a refused bet with `error`;
-  `cancelBet` has no reply. **S1** pins all of them in `docs/protocol.md` before the schemas are
-  written — the document leads and the schemas follow, never the other way round.
+- **The dev surface on the wire.** `forceCrashPoint` is gated on the server (docs/protocol.md §9),
+  but its message shape — and what a forced round reveals in place of a chain seed it did not use,
+  so that a forced result can never pass for a verified one — is unwritten. **S3** pins it in the
+  document and `packages/protocol` together.
+- **The salt is fixed, not beacon-derived.** docs/protocol.md §3.3 records it: a real-money operator
+  would take each chain's salt from public randomness published after the commit, so `s₀` could not
+  be ground for a favourable chain. Accepted for a play-money demo; revisit only if the project
+  ever claims more than that.
 - **The host versus a chain that must survive a redeploy.** P1 plans Fly or Railway with SQLite on a
   volume; the slot project (2026-09-26) found that the no-card free tier it could actually use —
   Render — has no persistent disk and sleeps after 15 idle minutes. Worth noting before P1 picks:

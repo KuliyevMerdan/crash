@@ -20,6 +20,9 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@crash/curve": "workspace:*",
+    "@crash/fair": "workspace:*",
+    "@crash/protocol": "workspace:*",
     "@eslint/js": "^9",
     "@types/node": "^20",
     "dependency-cruiser": "^16",

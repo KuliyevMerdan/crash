@@ -1,6 +1,11 @@
 /**
- * @crash/protocol — zod schemas and inferred types for every message in docs/protocol.md, and the three-class error taxonomy.
+ * @crash/protocol — the wire contract (docs/protocol.md) as zod schemas and the types inferred from
+ * them. The document leads; this package follows it in the same commit, always.
  *
- * Empty until **S1** (ROADMAP.md). The dependency rules already police it.
+ * Importable by a Node and a browser target alike: zod and `@crash/money`, nothing else.
  */
-export {};
+export * from './primitives.js';
+export * from './errors.js';
+export * from './snapshot.js';
+export * from './messages.js';
+export * from './parse.js';

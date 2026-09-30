@@ -14,10 +14,9 @@ committed crash point, server-time cash-out, the shared curve, the dependency ru
 > tick off here + update `CLAUDE.md` (Rule 0) and delete the filled Gaps entries (Rule 1)**
 
 **S0 landed 2026-09-30** — the workspace, strict TypeScript, the dependency graph and purity rules
-enforced and proven against illegal fixtures, CI. The wire contract
-([`docs/protocol.md`](docs/protocol.md)) and both ADRs are pinned, so S1 shows ◐: its remaining boxes
-are implementation, plus the payload shapes the contract names but does not yet define
-([`CLAUDE.md`](CLAUDE.md) § Gaps).
+enforced and proven against illegal fixtures, CI. **S1 landed 2026-09-30** — the contract completed
+(every payload defined, the chain's length and rotation decided) and the four packages that read
+it: `protocol`, `money`, `curve`, `fair`. **S2 is next.**
 
 ---
 
@@ -26,7 +25,7 @@ are implementation, plus the payload shapes the contract names but does not yet 
 | Block | Delivers | Gates on | Status |
 | --- | --- | --- | --- |
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI | — | ✅ (landed 2026-09-30) |
-| **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ◐ |
+| **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ✅ (landed 2026-09-30) |
 | **S2** | `engine` — the round machine, pure and headless | S1 | ☐ |
 | **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ☐ |
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ☐ |
@@ -80,19 +79,28 @@ _2–3 days. Write this before anything moves on screen. Everything is downstrea
 - [x] **The two load-bearing decisions are ADRs** (2026-08-17) —
       [ADR-0001](docs/adr/ADR-0001-committed-crash-point.md) (committed crash point, hash chain) and
       [ADR-0002](docs/adr/ADR-0002-server-time-cashout.md) (server receive time decides a cash-out).
-- [ ] `packages/money`: branded `Minor`, integer arithmetic, `Intl.NumberFormat` display.
-- [ ] `packages/curve`: `m(t)` and `t(m)` in hundredths of 1×, with the round-trip property test
-      (`t(m(t)) ≈ t` across the whole range) and behaviour pinned at the boundaries (`t = 0`,
-      quantisation steps, the largest representable multiplier).
-- [ ] `packages/fair`: chain generation, reverse consumption, `HMAC → crashPoint`, and
-      `verify(seed, previousHash) → boolean`. **Isomorphic** — a test that runs it under both Node
-      and a DOM environment.
-- [ ] Golden test: ~30 pinned seeds → crash points that never change. A diff here is either a bug or
-      a deliberate, documented break of every past verification.
-- [ ] `packages/protocol`: zod schemas + inferred types for all of §2, `GameConfig`, the round
-      snapshot, the error union. Importable by both a Node and a browser target.
-- [ ] **Decide chain length and rotation** — how many rounds per chain, and how the next commit is
-      published before the current one runs out ([`CLAUDE.md`](CLAUDE.md) § Gaps).
+- [x] **The contract completed first** — the payloads it named but never gave (`bettingOpen`,
+      `roundStart`, the two bet-entry shapes, the `cancelBet` replies), `roundId` on every private
+      reply as invariant 8 demands, `betRejected` retired for `error` (D8), the error codes
+      enumerated per class, the curve in integer ms with an exact inverse (D9), the `1,000,000×`
+      ceiling (D10), hashes as bare hex (D12).
+- [x] `packages/money`: branded `Minor`, integer arithmetic, `Intl.NumberFormat` display — and a
+      `payout` that refuses an inexact product rather than rounding it.
+- [x] `packages/curve`: `m(t)` and `t(m)` in hundredths of 1×, with the round-trip property test
+      and behaviour pinned at the boundaries (`t = 0`, every quantisation step to 100×, the
+      ceiling). The inverse is walked to the exact boundary, not trusted to `ln`.
+- [x] `packages/fair`: chain generation, reverse consumption, `HMAC → crashPoint`, `verifyLink`,
+      `verifyToCommit`. **Isomorphic** — SHA-256 and HMAC in plain TypeScript, and a suite that
+      runs in happy-dom.
+- [x] Golden test: 30 pinned seeds → crash points, computed by an independent Python
+      implementation, plus other edges and a chain.
+- [x] `packages/protocol`: zod schemas + inferred types for all of §2, `GameConfig`, the round
+      snapshot, the error union, the §3.3 HTTP shapes. `tests/protocol-doc.test.ts` holds the
+      document's tables and the schemas to the same list.
+- [x] **Chain length and rotation decided** — a million links, the next chain published with
+      50,000 left, `GET /fair/chains` (docs/protocol.md §3.3, D11). The crash-point formula
+      turned out to fix the instant-bust fraction analytically at exactly the edge (§3.2), so that
+      gap closed too; S4 confirms it rather than tunes it.
 
 **Done when:** a golden test pins the crash point for ~30 seeds, `fair` verifies a chain link in
 both runtimes, and the protocol schemas parse a hand-written fixture of every message.
@@ -136,7 +144,8 @@ _2–3 days._
 - [ ] Broadcast: ticks every 100 ms, `betPlaced` / `playerCashedOut` fan-out, `crash` with the reveal.
 - [ ] Persistence behind one interface, in-memory + SQLite. **Chain state survives restart** and
       resumes at the next unconsumed index.
-- [ ] `GET /fair/:chainIndex` for the verification page; health/readiness endpoints.
+- [ ] `GET /fair/chains` and `GET /fair/:chainId/:chainIndex` for the verification page
+      (docs/protocol.md §3.3); health/readiness endpoints.
 - [ ] Server-side fault injection (latency, drop, disconnect) and dev-gated `forceCrashPoint`, with
       the test that a production-mode server rejects a hand-crafted message carrying it.
 - [ ] Structured logs (pino) correlated on `roundId`; **a test that no log line ever contains an
@@ -152,8 +161,9 @@ _1 day. Gates only on S2 — good filler work._
 - [ ] Run N rounds headlessly through `engine` + `fair`, no server, no sockets.
 - [ ] Report: crash distribution against the theoretical `P(crash ≥ m) ≈ 0.99/m`, realised house
       edge, median and p99 crash point, longest observed streak below `2×`.
-- [ ] **Settle the instant-bust fraction** so realised edge matches `houseEdgeBps = 100`
-      ([`CLAUDE.md`](CLAUDE.md) § Gaps), and pin it with a tolerance test in CI at a smaller N.
+- [ ] **Confirm the edge empirically** — the instant-bust fraction and the realised edge both
+      equal `houseEdgeBps` by derivation (docs/protocol.md §3.2); pin that with a tolerance test in
+      CI at a smaller N, so a regression in `fair` shows up as a number, not a hunch.
 - [ ] Simulate flat strategies (always `1.5×`, always `2×`, always `10×`) and show they converge to
       the same expected value minus edge — the claim from the README, made checkable.
 

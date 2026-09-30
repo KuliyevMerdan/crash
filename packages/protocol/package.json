@@ -20,7 +20,8 @@
     "test": "vitest run --config ../../config/vitest.package.ts"
   },
   "dependencies": {
-    "@crash/money": "workspace:*"
+    "@crash/money": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",

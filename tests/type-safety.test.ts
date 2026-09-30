@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eslint } from './lint-runner';
+import { eslint } from './lint-runner.js';
 
 /**
  * Proves CLAUDE.md's "no `any`, no non-null `!`, no `as`" is enforced rather than hoped for — and

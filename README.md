@@ -4,9 +4,9 @@ A **real-time multiplayer crash game** — one round, every player in it at once
 climbs until it busts. Node + TypeScript on the server, Canvas 2D in the browser, WebSocket between
 them.
 
-> ⚠️ **Status (2026-09-30): workspace built, no game yet.** The wire contract, the architecture and
-> the block map exist, and **S0** has landed — the workspace, its enforced boundaries, CI. See
-> [`ROADMAP.md`](ROADMAP.md) — **S1**, the contracts, is next.
+> ⚠️ **Status (2026-09-30): contracts built, no round yet.** **S0** (the workspace and its enforced
+> boundaries) and **S1** (the wire contract as schemas, the curve, money, and the provably-fair
+> chain) have landed. See [`ROADMAP.md`](ROADMAP.md) — **S2**, the round machine, is next.
 
 ## What makes it interesting to build
 

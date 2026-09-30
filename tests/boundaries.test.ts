@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ROOT, runForJson } from './lint-runner';
+import { ROOT, runForJson } from './lint-runner.js';
 
 /**
  * Proves the dependency rules fire.
