@@ -1,4 +1,5 @@
 import type { Drawn } from '@crash/renderer';
+import type { Report } from './useBetting.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
@@ -25,8 +26,9 @@ if (__ASSERT_CURVE__) {
 
 // Dev hooks for the perf probe and the E2E suite — stripped from a production build.
 let lastDrawn: Drawn | null = null;
+const reports: Report[] = [];
 if (__DEV_HOOKS__) {
-  Object.assign(window, { __crash: { client, drawn: () => lastDrawn, sendRaw } });
+  Object.assign(window, { __crash: { client, drawn: () => lastDrawn, sendRaw, reports } });
 }
 
 const root = document.getElementById('root');
@@ -35,7 +37,12 @@ if (root) {
     <StrictMode>
       <App
         client={client}
-        {...(__DEV_HOOKS__ ? { onDrawn: (d: Drawn) => void (lastDrawn = d) } : {})}
+        {...(__DEV_HOOKS__
+          ? {
+              onDrawn: (d: Drawn) => void (lastDrawn = d),
+              onReport: (r: Report) => void reports.push(r),
+            }
+          : {})}
       />
     </StrictMode>,
   );

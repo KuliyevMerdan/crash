@@ -12,6 +12,7 @@
     "dev:server": "pnpm --filter @crash/server dev",
     "sim": "turbo run build --filter=@crash/sim --output-logs=errors-only && pnpm --filter @crash/sim start",
     "perf:web": "turbo run build --filter=@crash/web --filter=@crash/server --output-logs=errors-only && pnpm --filter @crash/web build:perf && node apps/web/scripts/perf.mjs",
+    "play:web": "turbo run build --filter=@crash/web --filter=@crash/server --output-logs=errors-only && pnpm --filter @crash/web build:perf && node apps/web/scripts/play.mjs",
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
     "test:root": "vitest run",

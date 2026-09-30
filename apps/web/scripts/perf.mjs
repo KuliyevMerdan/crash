@@ -9,90 +9,22 @@
 //   3. the two pages side by side — their clocks and their counters compared frame by frame.
 //
 // Needs Playwright's Chromium: set PLAYWRIGHT_BROWSERS_PATH if it is not in the default place.
-import { spawn } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { curve, multiplierAt } from '@crash/curve';
+import { startStack, until } from './stack.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '../../..');
-const SERVER_PORT = 8091;
-const WEB_PORT = 5191;
 const FORCED = 10_000; // 100.00×
 const K = curve(0.15);
-const children = [];
-
-function start(args, env) {
-  const child = spawn(process.execPath, args, {
-    cwd: root,
-    env: { ...process.env, ...env },
-    stdio: 'ignore',
-  });
-  children.push(child);
-  return child;
-}
-const stopAll = () => children.forEach((c) => c.kill('SIGTERM'));
-process.on('exit', stopAll);
-
-async function until(fn, ms, what) {
-  const end = Date.now() + ms;
-  for (;;) {
-    try {
-      const value = await fn();
-      if (value) return value;
-    } catch {}
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
-
 const quantile = (xs, q) =>
   [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(q * xs.length))];
 
-// ── The stack ──
-start(['apps/server/dist/main.js'], {
-  PORT: String(SERVER_PORT),
-  CRASH_ENV: 'development',
-  CRASH_BETTING_MS: '3000',
-  CRASH_CRASHED_MS: '1500',
-  LOG_LEVEL: 'warn',
+const stack = await startStack({
+  serverPort: 8091,
+  webPort: 5191,
+  serverEnv: { CRASH_BETTING_MS: '3000', CRASH_CRASHED_MS: '1500' },
 });
-start(
-  [
-    'apps/web/node_modules/vite/bin/vite.js',
-    'preview',
-    'apps/web',
-    '--outDir',
-    'dist-perf',
-    '--host',
-    '127.0.0.1',
-    '--port',
-    String(WEB_PORT),
-    '--strictPort',
-  ],
-  {
-    CRASH_SERVER: `http://127.0.0.1:${SERVER_PORT}`,
-  },
-);
-await until(
-  () => fetch(`http://127.0.0.1:${SERVER_PORT}/ready`).then((r) => r.ok),
-  20_000,
-  'the server',
-);
-await until(
-  () => fetch(`http://127.0.0.1:${WEB_PORT}/`).then((r) => r.ok),
-  20_000,
-  'the web preview',
-);
-
-// A controller on its own socket: it forces the round and watches the broadcast.
-const control = new WebSocket(`ws://127.0.0.1:${SERVER_PORT}/ws`);
-const heard = [];
-control.addEventListener('message', (e) => heard.push(JSON.parse(e.data)));
-await until(() => control.readyState === 1, 5000, 'the controller socket');
-control.send(JSON.stringify({ type: 'authenticate', token: null, nick: 'perf' }));
-await until(() => heard.some((m) => m.type === 'hello'), 5000, 'hello');
+const { control, heard } = stack;
+const WEB = stack.webUrl;
 
 // ── The browsers ──
 const browser = await chromium.launch({ headless: true });
@@ -109,7 +41,7 @@ const cdp = await phone.newCDPSession(a);
 await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 
 for (const page of [a, b]) {
-  await page.goto(`http://127.0.0.1:${WEB_PORT}/`);
+  await page.goto(WEB);
   await page.waitForFunction(() => window.__crash?.client.getState().status === 'live', null, {
     timeout: 20_000,
   });
@@ -173,8 +105,7 @@ const heapAfter = await a.evaluate(() => performance.memory?.usedJSHeapSize ?? n
 const [fa, fb] = await Promise.all([a, b].map((p) => p.evaluate(() => window.__probe.frames)));
 const heardByPhone = await a.evaluate(() => window.__probe.messages);
 await browser.close();
-control.close();
-stopAll();
+stack.stop();
 
 // ── Analysis ──
 const running = (frames) =>

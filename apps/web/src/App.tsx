@@ -2,7 +2,10 @@ import type { CrashClient } from '@crash/client-core';
 import { formatMinor } from '@crash/money';
 import type { Drawn } from '@crash/renderer';
 import { useEffect, useState } from 'react';
+import { BetPanel } from './BetPanel.js';
 import { CurveCanvas } from './CurveCanvas.js';
+import { ResultBanner } from './ResultBanner.js';
+import { useBetting, type Report } from './useBetting.js';
 import { useClientState, useDesync } from './useClient.js';
 
 const STATUS_TEXT = {
@@ -16,11 +19,14 @@ const STATUS_TEXT = {
 export function App({
   client,
   onDrawn,
+  onReport,
 }: {
   client: CrashClient;
   onDrawn?: (drawn: Drawn) => void;
+  onReport?: (report: Report) => void;
 }) {
   const state = useClientState(client);
+  const betting = useBetting(client, onReport);
   const desynced = useDesync(client);
   const announcement = useAnnouncer(client);
   const game = state.game;
@@ -42,7 +48,9 @@ export function App({
       </header>
       <section className="stage">
         <CurveCanvas client={client} {...(onDrawn ? { onDrawn } : {})} />
+        <ResultBanner result={betting.result} />
       </section>
+      <BetPanel client={client} betting={betting} />
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>

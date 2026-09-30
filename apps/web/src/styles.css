@@ -104,3 +104,185 @@ body {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ── C2: the result moment and the bet panel ── */
+.app {
+  grid-template-rows: auto minmax(220px, 1fr) auto auto;
+}
+.result {
+  position: absolute;
+  left: 50%;
+  top: 71%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  background: rgba(11, 16, 32, 0.86);
+  border: 2px solid currentColor;
+  text-align: center;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  animation: pop 180ms ease-out;
+}
+.result strong {
+  font-size: clamp(22px, 6vw, 34px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.result span {
+  font-size: 14px;
+}
+.result small {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.result.won {
+  color: var(--good);
+}
+.result.lost {
+  color: var(--bad);
+}
+@keyframes pop {
+  from {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .result {
+    animation: none;
+  }
+}
+
+.panel {
+  display: grid;
+  gap: 10px;
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 12px;
+}
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.field small {
+  font-size: 11px;
+}
+.stepper {
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.stepper input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: 700 16px/1 inherit;
+  font-variant-numeric: tabular-nums;
+  padding: 10px;
+  text-align: center;
+}
+.stepper button {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: 700 14px inherit;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.stepper button:disabled,
+.stepper input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.unit {
+  padding-right: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.action {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 64px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  color: #0b1020;
+  cursor: pointer;
+  transition:
+    filter 120ms,
+    transform 60ms;
+}
+.action:active:not(:disabled) {
+  transform: scale(0.99);
+}
+.action:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.7) brightness(0.6);
+}
+.action.place {
+  background: var(--good);
+}
+.action.cancel {
+  background: #94a3b8;
+}
+.action.cashout {
+  background: var(--warn);
+  min-height: 76px;
+}
+.action-title {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-size: 15px;
+}
+.action-amount {
+  font-weight: 800;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.action-detail {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+.note {
+  margin: 0;
+  min-height: 2.6em;
+  font-size: 12px;
+  color: var(--muted);
+}
+.note.bad {
+  color: var(--bad);
+}
+@media (min-width: 900px) {
+  .app {
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr auto;
+  }
+  .bar,
+  .notice {
+    grid-column: 1 / -1;
+  }
+  .panel {
+    align-self: start;
+  }
+}

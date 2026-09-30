@@ -23,7 +23,9 @@ endpoints, the dev surface. **S4 landed 2026-09-30** — `tools/sim`: a million 
 strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). **C0 landed
 2026-09-30** — `client-core`, held to the real server's state through 20 dropped connections in
 virtual time. **C1 landed 2026-09-30** — the curve, the counter and the crash on Canvas 2D in a
-Vite + React shell, measured through a 100× round and a 5-second stall. **C2 is next.**
+Vite + React shell, measured through a 100× round and a 5-second stall. **C2 landed 2026-09-30** —
+the bet panel and a cash-out that prices the press before it is made, played 30 rounds on a 300 ms
+link. **C3 is next.**
 
 ---
 
@@ -38,7 +40,7 @@ Vite + React shell, measured through a 100× round and a 5-second stall. **C2 is
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ✅ (landed 2026-09-30) |
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ✅ (landed 2026-09-30) |
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ✅ (landed 2026-09-30) |
-| **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ☐ |
+| **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ✅ (landed 2026-09-30) |
 | **C3** | Player list, round history, the verification page | C1, S3 | ☐ |
 | **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ☐ |
 | **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ☐ |
@@ -259,18 +261,21 @@ the phone's socket with no paused frame, no backwards step and no leap; the two 
 
 _2–3 days._
 
-- [ ] Bet panel: amount stepper against config limits, place during `BETTING`, cancel before it
-      closes, disabled states that explain themselves.
-- [ ] The cash-out button as the centre of the UI — stake, current value, one press.
-- [ ] **Latency disclosure.** The button shows what the press will *actually* land on given measured
-      `rtt`, before it is pressed ([ADR-0002](docs/adr/ADR-0002-server-time-cashout.md)). Getting a
-      multiplier you didn't see must never feel like a bug.
-- [ ] Auto cash-out input, with the honest explanation of why it is more accurate than a press.
-- [ ] Balance HUD driven **only** by authoritative balances from the wire. Never computed locally.
-- [ ] The result moment: won at `4.21×` / busted, unmissable, and gone before the next round opens.
+- [x] Bet panel: amount stepper (½ / ×2, clamped to the limits and the balance), place during
+      `BETTING`, cancel before it closes — every disabled state saying why (`panelModel`, pure).
+- [x] The cash-out button as the centre of the UI — stake, what it pays now, one press (or Space).
+- [x] **Latency disclosure.** The button prices the press at `landingMultiplier()` — the curve half a
+      round trip ahead — before it is pressed, and the result shows screen / promised / paid.
+- [x] Auto cash-out input, with the honest reason it is more accurate than a press.
+- [x] Balance HUD driven **only** by the wire's balances; typed stakes parsed digit by digit.
+- [x] The result moment: `+5.80 · cashed out at 1.16×` / `BUSTED`, following the wire (auto and other
+      tabs included), cleared by the next `bettingOpen`.
 
 **Done when:** you can play thirty rounds on a 300 ms throttled connection without ever being
-surprised by the multiplier you got.
+surprised by the multiplier you got. **Met 2026-09-30** (`pnpm play:web`): 30 rounds through the real
+panel in Chromium on a 300 ms link — every manual cash-out paid exactly what the button promised
+(0 hundredths off, against 4.7 on average off what the curve showed at the press), every auto
+cash-out that was reached paid its target exactly, no press arrived late, no bet missed betting.
 
 ## Block C3 — Players, history, verification
 

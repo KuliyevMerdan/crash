@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ⚠️ **The round is on screen; nobody can bet on it yet.** **S0–S4, C0 and C1 landed
+> ⚠️ **The game is playable; the table and the verifier are not on screen yet.** **S0–S4 and C0–C2 landed
 > 2026-09-30.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
@@ -19,7 +19,9 @@ repository.
 > proven against the real server in virtual time through 20 dropped connections across 100 rounds.
 > C1: `packages/renderer` and `apps/web` — the curve, the counter and the crash on Canvas 2D in a
 > Vite + React shell, measured on a throttled phone profile through a 100× round and a 5-second stall.
-> ADR-0001 and ADR-0002 are accepted. **C2 — betting, cash-out, latency — is next.**
+> C2: the bet panel, the cash-out that prices a press half a round trip ahead, auto cash-out and the
+> result moment — played 30 rounds on a 300 ms link with every manual cash-out paid what the button said.
+> ADR-0001 and ADR-0002 are accepted. **C3 — players, history, the verification page — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -95,7 +97,7 @@ fills them.
 | `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync`, reconnect with jittered backoff, ping liveness, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`. **No DOM** — socket, clock and timers are injected | ✅ C0 |
 | `packages/renderer` | `CrashRenderer` — draws a `Frame` (idle · waiting · running · crashed: plain numbers) on a narrow `Ctx` slice of Canvas 2D; `extents` (the axes as pure functions of time), ticks, `formatMultiplier`. **No React, no protocol** | ✅ C1 |
 | `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
-| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer, `scripts/perf.mjs` | ✅ C1 · C2–C3 to come |
+| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `scripts/perf.mjs` and `scripts/play.mjs` | ✅ C1–C2 · C3 to come |
 | `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
 
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
@@ -304,6 +306,36 @@ interrupted it). The client now floors the clock onto the wire; the fake server 
 frame with the real parser and fails on a malformed one; and the perf gate fails on any error or
 reconnect.
 
+### The cash-out says what it will get before you press it
+
+**C2** puts money on the curve. Every control follows one rule: it is derived, never stored —
+`panelModel(state, form, pending)` is a pure function from the client's state and what the player
+typed to what the panel shows and allows, **and a disabled control always carries the reason**
+(the minimum, the maximum, the balance, the auto cash-out range, a request in flight, a reconnect).
+
+- **One primary action whose meaning follows the round**: place during `BETTING`, cancel once the
+  bet is on the table, cash out while it rides — Space presses it unless you are typing.
+- **The cash-out is priced half a round trip ahead.** The curve shows where the round is on the
+  server now; a press reaches the server `rtt/2` later, so the button shows
+  `payout(stake, landingMultiplier())` and "lands ≈ x.xx× · ping n ms" (ADR-0002). Its label changes
+  every frame, so it is written straight to the DOM from its own animation frame, never through
+  React state — the C1 principle applied to a button.
+- **At the press, the panel records what the curve showed and what the button promised**, and the
+  result banner shows both beside what the server paid. The gap between the curve and the payout is
+  explained where the player looks for it.
+- **Auto cash-out is offered with the reason it is better**: it fires on the server at exactly the
+  target, with no network in the way.
+- **The balance is only ever the wire's.** Typed stakes are parsed digit by digit into minor units
+  (`0.29` is 29, never 28.99…), and anything with a third decimal is refused, not rounded.
+- **The result moment** — `+5.80 · cashed out at 1.16×` or `BUSTED · crashed at 1.38×` — appears
+  when the money moves (an auto cash-out and another tab's press included, because it follows the
+  wire, not the button) and is cleared by the next `bettingOpen`.
+
+**What C2 found:** the dev hook that feeds `scripts/play.mjs` was never wired — a replacement that
+Prettier had already reformatted silently did not apply, and the first measurement reported zero
+cash-outs. The gate caught it because it fails when it has too few samples to judge, rather than
+passing on none.
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -315,6 +347,8 @@ reconnect.
 | Statistical | `tools/sim`: in CI, 50,000 seeded rounds with every rate within 4σ of its formula, zero auto cash-outs off the D14 rule, money conserved, and a check that S2's tie rule would sit >9σ out; by hand, `pnpm sim` over a million (below) | ✅ S4 |
 | Client ↔ server | `tests/client-server.test.ts`: `packages/client-core` against `createGameServer` in one virtual clock over an in-process network — **20 connections cut across 100 rounds**, the cuts taking turns at BETTING, RUNNING and CRASHED, the client held to the server's phase, table, bets, balance and multiplier after every reconnect and at every step; and 40 ms up / 120 ms down, the offset at exactly −40 and the drawn multiplier exactly `m(now + offset − startedAt)`. Checked non-vacuous by breaking the reducer and watching it fail. Plus the client's own suite on a scripted server: asymmetric latency, an hour of clock skew, timeouts, `SYSTEM` retries, backoff, half-open liveness, session reset, drift | ✅ C0 |
 | Renderer + web | `renderer`: axes continuous frame to frame and always holding the head, ticks on step multiples with the step's own precision, the counter's formatting, drawing through a recording context that throws on any non-finite number · `apps/web`: `frameOf` for every phase, a stale view, the verifiable and forced notes | ✅ C1 |
+| Panel | `apps/web`: stake and multiplier parsing (digit by digit, refusing a third decimal) · every panel mode and every disabled state with its reason | ✅ C2 |
+| Play (C2 gate) | `pnpm play:web` — 30 rounds in real Chromium on a 300 ms link, the bot typing and clicking the real panel (below) | ✅ C2 |
 | Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · real devices in P0 |
 | Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
@@ -338,6 +372,24 @@ What `pnpm perf:web` measured (2026-09-30):
 | Side by side: frame pairs within 2 ms | 3681 |
 | Side by side: clock disagreement (max) | 0.8 ms |
 | Side by side: counter disagreement at one instant (max) | 1 hundredths |
+
+What `pnpm play:web` measured (2026-09-30):
+
+**C2 play** · 30 rounds · 300 ms round trip (devFaults) · real panel, real Chromium
+
+| Measure | Result |
+| --- | --- |
+| Manual cash-outs paid | 9 |
+| … paid minus the button's promise: mean / max | 0.00 / 0 hundredths |
+| … paid minus what the curve showed at the press: mean / max | 4.67 / 7 hundredths |
+| Manual presses that arrived after the crash (TOO_LATE) | 0 |
+| Rounds that crashed before the bot's target (busted, no press) | 5 |
+| Auto cash-out rounds / paid exactly the target when it was reached | 16 / 9 |
+| Auto cash-outs off "wins iff target ≤ crash point, pays the target" | 0 |
+| Bets that missed betting (click landed after the close) | 0 |
+
+On localhost the injected latency is exact, so "0 hundredths off the promise" is the best case; real
+jitter moves the landing by the curve's rise over the jitter, which is **P0**'s to measure.
 
 The statistical layer is the one that would be missing from a weaker version of this project, and
 it is the one that proves the house edge is where ADR-0001 says it is. What it measured
@@ -436,6 +488,9 @@ writing:
   `s₀`* — `s₀` can live as a secret, and only the consumed index needs durable storage. **P1**
   decides the host and where that index lives. S3 made the stakes concrete: the SQLite file holds
   the balances and the journal too, so a host without a disk loses more than the cursor.
+- **The landing prediction assumes a symmetric, steady link.** It adds `rtt/2`; jitter and asymmetry
+  move the real landing by the curve's rise over the difference. The play gate measured it exact on
+  localhost's injected latency; **P0** measures it on a real mobile network.
 - **The perf numbers are headless Chromium, not a phone.** `pnpm perf:web` throttles the CPU 4× and
   emulates a 375×812 DPR-3 screen, and headless frames run at 120 Hz — the same caveat as the slot
   project's harness. A real mid-range Android is **P0**'s to measure, with the betting window.
