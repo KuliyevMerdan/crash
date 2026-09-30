@@ -22,7 +22,8 @@ machine, conserving every minor unit over 10,000 seeded rounds. **S3 landed 2026
 endpoints, the dev surface. **S4 landed 2026-09-30** — `tools/sim`: a million rounds, every flat
 strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). **C0 landed
 2026-09-30** — `client-core`, held to the real server's state through 20 dropped connections in
-virtual time. **C1 is next.**
+virtual time. **C1 landed 2026-09-30** — the curve, the counter and the crash on Canvas 2D in a
+Vite + React shell, measured through a 100× round and a 5-second stall. **C2 is next.**
 
 ---
 
@@ -36,7 +37,7 @@ virtual time. **C1 is next.**
 | **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ✅ (landed 2026-09-30) |
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ✅ (landed 2026-09-30) |
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ✅ (landed 2026-09-30) |
-| **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ☐ |
+| **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ✅ (landed 2026-09-30) |
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ☐ |
 | **C3** | Player list, round history, the verification page | C1, S3 | ☐ |
 | **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ☐ |
@@ -232,21 +233,27 @@ and multiplier after every reconnect and at every step between.
 
 _3 days._
 
-- [ ] `apps/web` bootstrap: Vite + React shell, `client-core` wired, connection states that are
-      real UI (connecting / reconnecting / desynced) rather than a spinner.
-- [ ] `packages/renderer`: Canvas 2D, delta-time driven, drawing from `curve(now − startedAt)` at
-      60 fps. **Ticks correct drift; they do not drive frames.**
-- [ ] **Viewport rescaling** — the exponential leaves the screen within seconds. Axis compression as
-      the multiplier climbs, smooth, never a jump ([`CLAUDE.md`](CLAUDE.md) § Gaps).
-- [ ] The counter: large, readable, quantised to the same hundredths as the wire so it can never
-      show a number the server would disagree with.
-- [ ] The crash: the curve breaks, the counter freezes red, the reveal appears. Then the pause and
-      the countdown to the next round.
-- [ ] `__ASSERT_CURVE__` in dev builds — throw on any tick disagreeing by more than one step (0.01×).
+- [x] `apps/web` bootstrap: Vite + React shell, `client-core` wired through `browserTransport`,
+      connection states as a real status pill (connecting / joining / live / reconnecting / out of
+      sync) and a polite live region for screen readers.
+- [x] `packages/renderer`: Canvas 2D, drawing from `serverNow − startedAt` every animation frame.
+      **Ticks correct drift; they do not drive frames** — they never reach the renderer.
+- [x] **Viewport rescaling** — the axes are continuous functions of time and the multiplier (a
+      smooth maximum of rest and growth); tested under 2% change per frame through 90 s.
+- [x] The counter: integer hundredths, the wire's quantisation, drawn behind the line.
+- [x] The crash: the line stops at the crash moment, the counter freezes red, sparks, the reveal
+      note; then the countdown to the next round with a progress bar.
+- [x] `__ASSERT_CURVE__` in every non-production build — a drifting tick throws on its own task.
+- [x] **Found and fixed:** browser pings carried a fractional `clientTime`, so clock sync never ran
+      in a browser and liveness dropped the socket every 15 s ([`CLAUDE.md`](CLAUDE.md) § The web
+      client).
 
 **Done when:** it holds 60 fps on a throttled mobile profile through a `100×` round, survives a
 5-second network stall mid-curve without a visual jump, and two browsers side by side show the same
-multiplier to the naked eye.
+multiplier to the naked eye. **Met 2026-09-30** (`pnpm perf:web`, headless Chromium): 0 frames over
+25 ms across 3,684 on a 4×-throttled 375×812 phone, heap flat at 10.0 MB; a real 5.0 s silence on
+the phone's socket with no paused frame, no backwards step and no leap; the two pages' clocks within
+0.8 ms and their counters within one hundredth. A real phone is P0's.
 
 ## Block C2 — Betting, cash-out, latency
 

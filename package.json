@@ -11,6 +11,7 @@
     "build": "turbo run build",
     "dev:server": "pnpm --filter @crash/server dev",
     "sim": "turbo run build --filter=@crash/sim --output-logs=errors-only && pnpm --filter @crash/sim start",
+    "perf:web": "turbo run build --filter=@crash/web --filter=@crash/server --output-logs=errors-only && pnpm --filter @crash/web build:perf && node apps/web/scripts/perf.mjs",
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
     "test:root": "vitest run",
@@ -19,7 +20,8 @@
     "check": "pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test && pnpm run test:root && pnpm run format:check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev": "turbo run dev --filter=@crash/server --filter=@crash/web"
   },
   "devDependencies": {
     "@crash/client-core": "workspace:*",
@@ -30,10 +32,12 @@
     "@crash/protocol": "workspace:*",
     "@crash/server": "workspace:*",
     "@eslint/js": "^9",
+    "@playwright/test": "catalog:",
     "@types/node": "^20",
     "dependency-cruiser": "^16",
     "eslint": "^9",
     "eslint-config-prettier": "^10",
+    "eslint-plugin-react-hooks": "^7",
     "husky": "^9",
     "lint-staged": "^16",
     "pino": "catalog:",

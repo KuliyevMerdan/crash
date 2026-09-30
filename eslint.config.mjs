@@ -2,6 +2,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 /**
  * The purity rules from CLAUDE.md, as lint rules.
@@ -22,12 +23,30 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/.turbo/**',
+      '**/dist-perf/**',
       'config/fixtures/**', // deliberately illegal — see config/fixtures/README.md
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
+  {
+    // Node scripts outside the type-checked source — the perf probe drives a browser from here.
+    files: ['**/scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        fetch: 'readonly',
+        WebSocket: 'readonly',
+        setTimeout: 'readonly',
+        window: 'readonly',
+        performance: 'readonly',
+        requestAnimationFrame: 'readonly',
+      },
+    },
+    rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
+  },
   {
     // Tooling config that has to stay CommonJS (dependency-cruiser loads it with `require`).
     files: ['**/*.cjs'],
@@ -51,13 +70,20 @@ export default tseslint.config(
     // zod, which returns the type, so the boundary itself needs no assertion either; where one
     // genuinely does, it carries an `eslint-disable-next-line` that says why. `as const` is not an
     // assertion about a value's type and stays allowed.
-    files: ['**/{packages,apps,tools}/*/src/**/*.ts'],
+    files: ['**/{packages,apps,tools}/*/src/**/*.{ts,tsx}'],
     ignores: ['**/*.test.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
     },
+  },
+  {
+    // The one React code in the workspace (react-stays-in-web). The hooks rules catch the effect that
+    // re-subscribes every render and the stale closure — the two ways a canvas loop leaks.
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    plugins: { 'react-hooks': reactHooks },
+    rules: reactHooks.configs.recommended.rules,
   },
   {
     // `**/` so the rule set also applies to config/fixtures/packages/… — the fixtures that prove

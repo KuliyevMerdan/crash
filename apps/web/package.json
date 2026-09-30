@@ -3,31 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "build:perf": "vite build --mode perf --outDir dist-perf"
   },
   "dependencies": {
     "@crash/client-core": "workspace:*",
-    "@crash/renderer": "workspace:*",
-    "@crash/protocol": "workspace:*",
+    "@crash/fair": "workspace:*",
     "@crash/money": "workspace:*",
-    "@crash/fair": "workspace:*"
+    "@crash/protocol": "workspace:*",
+    "@crash/renderer": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }

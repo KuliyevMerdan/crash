@@ -324,7 +324,9 @@ export class CrashClient {
     let burst = 0;
     const next = () => {
       if (generation !== this.generation || this.state.status !== 'live') return;
-      const now = this.options.clock.now();
+      // Whole milliseconds on the wire: a browser clock (`performance.now`) is fractional, and the
+      // protocol's timestamps are integers (§1) — a fractional `clientTime` is a malformed ping.
+      const now = Math.floor(this.options.clock.now());
       if (now - this.lastPongAt > 3 * this.pingIntervalMs) {
         this.dropConnection(); // three intervals without a pong: the socket is dead, whatever it says
         return;

@@ -82,6 +82,17 @@ describe('clock sync (§8)', () => {
     expect(Math.abs((offset ?? 0) - 3_600_000)).toBeLessThanOrEqual(Math.abs(30 - 90) / 2);
   });
 
+  it('sends whole milliseconds even when its own clock is fractional, as a browser’s is', () => {
+    // performance.timeOrigin + performance.now() is never an integer; the protocol's timestamps are.
+    const t = setup({ skew: 0.37 });
+    login(t);
+    t.time.advance(2000);
+    const pings = t.server.sent('ping');
+    expect(pings.length).toBeGreaterThanOrEqual(5);
+    for (const ping of pings) expect(Number.isInteger(ping.clientTime)).toBe(true);
+    expect(t.client.getState().clock.rtt).not.toBeNull();
+  });
+
   it('draws the multiplier from startedAt on the server’s clock — joining a round already running', () => {
     const t = setup({ skew: 12_345 });
     const serverNow = t.time.now;

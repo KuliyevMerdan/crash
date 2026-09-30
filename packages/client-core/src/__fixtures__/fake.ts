@@ -1,5 +1,10 @@
 import { minor } from '@crash/money';
-import type { ClientMessage, ServerMessage, ServerMessageOf } from '@crash/protocol';
+import {
+  parseClientMessage,
+  type ClientMessage,
+  type ServerMessage,
+  type ServerMessageOf,
+} from '@crash/protocol';
 import type {
   Clock,
   Connection,
@@ -84,7 +89,14 @@ export class FakeServer implements Transport {
     };
   }
 
-  private onClientFrame(message: ClientMessage): void {
+  private onClientFrame(raw: unknown): void {
+    // Parsed with the server's own parser, as the real hub does: a frame the real server would call
+    // malformed fails the test here, instead of passing a fake that accepts any JSON. (C1 found a
+    // fractional ping `clientTime` in the browser that this fake had waved through.)
+    const outcome = parseClientMessage(raw);
+    if (outcome.kind !== 'ok')
+      throw new Error(`the client sent a frame the server rejects: ${JSON.stringify(raw)}`);
+    const message = outcome.message;
     this.received.push(message);
     if (message.type === 'ping' && this.autoPong) {
       this.send({

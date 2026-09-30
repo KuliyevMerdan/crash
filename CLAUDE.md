@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ⚠️ **The client core holds the round; nothing draws it yet.** **S0–S4 and C0 landed
+> ⚠️ **The round is on screen; nobody can bet on it yet.** **S0–S4, C0 and C1 landed
 > 2026-09-30.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
@@ -17,7 +17,9 @@ repository.
 > returning 99% within 1σ; it found that S2 paid auto cash-outs wrong at the crash point (D14).
 > C0: `packages/client-core` — the socket client, clock sync, reconnect and idempotent requests,
 > proven against the real server in virtual time through 20 dropped connections across 100 rounds.
-> ADR-0001 and ADR-0002 are accepted. **C1 — the curve on screen — is next.**
+> C1: `packages/renderer` and `apps/web` — the curve, the counter and the crash on Canvas 2D in a
+> Vite + React shell, measured on a throttled phone profile through a 100× round and a 5-second stall.
+> ADR-0001 and ADR-0002 are accepted. **C2 — betting, cash-out, latency — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -91,9 +93,9 @@ fills them.
 | `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt`, `createChain` with checkpoints, `verifyLink`, `verifyToCommit`. **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 |
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
 | `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync`, reconnect with jittered backoff, ping liveness, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`. **No DOM** — socket, clock and timers are injected | ✅ C0 |
-| `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
+| `packages/renderer` | `CrashRenderer` — draws a `Frame` (idle · waiting · running · crashed: plain numbers) on a narrow `Ctx` slice of Canvas 2D; `extents` (the axes as pure functions of time), ticks, `formatMultiplier`. **No React, no protocol** | ✅ C1 |
 | `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
-| `apps/web` | Vite + React shell around `renderer` + `client-core` | C1–C3 |
+| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer, `scripts/perf.mjs` | ✅ C1 · C2–C3 to come |
 | `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
 
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
@@ -267,6 +269,41 @@ To run the real server in virtual time, S3's socket layer was split in C0: `hub.
 connection logic over a `Peer` (anything with `send` and `terminate`), `sockets.ts` the `ws`
 adapter, and `createGameServer` the loop, chains and hub without Fastify.
 
+### The web client draws from the clock, never from the wire
+
+`apps/web` (**C1**) is a Vite + React shell around one canvas. React renders the shell — the status
+pill, the balance, the notice, a polite live region that announces each phase — and **nothing that
+changes per frame**. The canvas has its own `requestAnimationFrame` loop: read the client's state,
+turn it into a `Frame` with `frameOf(state, client.serverNow())`, hand it to the renderer. So ticks
+never drive a frame; they only correct drift inside `client-core`.
+
+- **The axes are pure functions of the round** (`renderer/viewport.ts`): a smooth maximum of a
+  resting extent (8 s × 2.00×) and a growing one, so no two frames differ by more than the round
+  moved (tested: under 2% per frame through a 90-second round). The exponential rescaled this way
+  is self-similar — the curve keeps its shape all the way up and the climb reads in the labels. This
+  closed the "past ~20×" gap.
+- **The counter is `multiplierAt` formatted in integer hundredths** — the wire's quantisation — and
+  sits *behind* the line. The crash freezes it red at `crashPoint`, the line stops at `crashedAt −
+  startedAt`, the sparks are a pure function of time since the crash, and the note says whether the
+  round is verifiable (`round #n · seed revealed`) or forced (dev).
+- **The backing store is sized at the device pixel ratio capped at 2**, re-read by a
+  `ResizeObserver`. No `shadowBlur` anywhere: the glow is a wide translucent stroke under the line.
+- **`__ASSERT_CURVE__` and the dev hooks** (`window.__crash`: the client, the last drawn frame, a
+  raw send down the player's own socket) exist in every build but production. `--mode perf` is a
+  minified build that keeps them, for the perf probe.
+- **`apps/web` resolves modules the bundler's way** (`moduleResolution: Bundler`, extensionless
+  imports) — the one exception to S1's `NodeNext`, because Vite bundles it and Node never loads it.
+  The library packages declare `sideEffects: false`.
+
+**What C1 found:** the browser's clock (`performance.timeOrigin + performance.now()`) is fractional,
+and `client-core` sent it as `ping.clientTime` — which the protocol makes an integer. Every ping was
+`MALFORMED_MESSAGE`, clock sync never ran in a browser, and liveness dropped the socket every 15 s.
+The virtual-time tests used integer clocks and the scripted fake server accepted any JSON, so
+nothing saw it until the perf run's stall check measured a 2-second "stall" (a reconnect had
+interrupted it). The client now floors the clock onto the wire; the fake server parses every client
+frame with the real parser and fails on a malformed one; and the perf gate fails on any error or
+reconnect.
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -277,8 +314,30 @@ adapter, and `createGameServer` the loop, chains and hub without Fastify.
 | Engine | every phase transition and every player refusal · a press 1 ms either side of the crash · racing presses on one `betId` · auto against manual in the same and the previous millisecond · auto cash-outs paying their target when processed late · retries across the round boundary · nothing secret in any effect, snapshot or tick before the crash · and **10,000 seeded rounds** (≈63k bets, ≈22k manual wins, ≈11k late presses, ≈6k retries) with money audited after every step and every bet resolved exactly once | ✅ S2 |
 | Statistical | `tools/sim`: in CI, 50,000 seeded rounds with every rate within 4σ of its formula, zero auto cash-outs off the D14 rule, money conserved, and a check that S2's tie rule would sit >9σ out; by hand, `pnpm sim` over a million (below) | ✅ S4 |
 | Client ↔ server | `tests/client-server.test.ts`: `packages/client-core` against `createGameServer` in one virtual clock over an in-process network — **20 connections cut across 100 rounds**, the cuts taking turns at BETTING, RUNNING and CRASHED, the client held to the server's phase, table, bets, balance and multiplier after every reconnect and at every step; and 40 ms up / 120 ms down, the offset at exactly −40 and the drawn multiplier exactly `m(now + offset − startedAt)`. Checked non-vacuous by breaking the reducer and watching it fail. Plus the client's own suite on a scripted server: asymmetric latency, an hour of clock skew, timeouts, `SYSTEM` retries, backoff, half-open liveness, session reset, drift | ✅ C0 |
+| Renderer + web | `renderer`: axes continuous frame to frame and always holding the head, ticks on step multiples with the step's own precision, the counter's formatting, drawing through a recording context that throws on any non-finite number · `apps/web`: `frameOf` for every phase, a stale view, the verifiable and forced notes | ✅ C1 |
+| Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · real devices in P0 |
 | Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
+
+What `pnpm perf:web` measured (2026-09-30):
+
+**C1 perf** · forced 100× round · phone: 375×812 @ DPR 3 (drawn at 2), CPU 4× throttled · headless Chromium
+
+| Measure | Result |
+| --- | --- |
+| Phone frames through the round | 3685 over 30.7 s |
+| Frame time p50 / p95 / max | 8.3 ms / 9.4 ms / 15.7 ms |
+| Frames over 25 ms | 0 of 3684 (0.00%) |
+| Heap before → after the round | 10.0 → 10.0 MB |
+| 5 s stall: longest silence on the phone's socket (proof it happened) | 5033.7 ms |
+| 5 s stall: longest gap between frames | 15.7 ms |
+| 5 s stall: frames where the counter went backwards | 0 |
+| 5 s stall: worst leap beyond the curve's own rise | 0 hundredths |
+| Phone's clock estimate, drift across the round | 0.4 ms |
+| Phone: errors heard / reconnects, whole run | 0 / 0 |
+| Side by side: frame pairs within 2 ms | 3681 |
+| Side by side: clock disagreement (max) | 0.8 ms |
+| Side by side: counter disagreement at one instant (max) | 1 hundredths |
 
 The statistical layer is the one that would be missing from a weaker version of this project, and
 it is the one that proves the house edge is where ADR-0001 says it is. What it measured
@@ -339,8 +398,9 @@ fresh chain each start unless `CRASH_DEV_CHAIN_SEED` is set). Its knobs are envi
 read in `apps/server/src/config.ts` — `CRASH_DB`, `CRASH_GROWTH_RATE`, `CRASH_BETTING_MS`,
 `CRASH_CHAIN_LENGTH` and friends. `pnpm sim -- --rounds 1000000 [--seed <hex>] [--json]` builds the
 sim **and everything it depends on** (Turborepo) before running it — S4 first ran it against a
-stale engine `dist/` and measured the bug it had already fixed. Still to come: `pnpm dev` (server +
-web) with **C1**.
+stale engine `dist/` and measured the bug it had already fixed. `pnpm dev` runs the server and the
+web app together (Vite on :5173, proxying `/ws` and `/fair` to :8080; `CRASH_SERVER` moves the
+target). `pnpm perf:web` builds everything, then measures the C1 gate in real Chromium (below).
 
 **Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
 compiler refuses one that does not. Found in S1: under `Bundler` resolution `tsc` emitted
@@ -376,8 +436,19 @@ writing:
   `s₀`* — `s₀` can live as a secret, and only the consumed index needs durable storage. **P1**
   decides the host and where that index lives. S3 made the stakes concrete: the SQLite file holds
   the balances and the journal too, so a host without a disk loses more than the cursor.
-- **What the curve looks like past ~20×.** Exponential growth leaves the viewport fast. Rescaling
-  strategy is a **C1** question and it is a real design problem, not a detail.
+- **The perf numbers are headless Chromium, not a phone.** `pnpm perf:web` throttles the CPU 4× and
+  emulates a 375×812 DPR-3 screen, and headless frames run at 120 Hz — the same caveat as the slot
+  project's harness. A real mid-range Android is **P0**'s to measure, with the betting window.
+- **The client bundle is 101 KB gzipped**, most of it React and zod. The dev message *schemas* ride
+  along (a top-level zod call is not provably pure, so the bundler keeps it) — inert, since the
+  client never sends one and the server decides whether to listen; the dev *hooks* and
+  `__ASSERT_CURVE__` are stripped (checked by grepping the production bundle). **P1** can split
+  `@crash/protocol/dev` if the bytes ever matter.
+- **The line ends where the client last drew it, then snaps to the crash.** The crash arrives a
+  one-way latency after it happened, so the curve has been drawn that far past the crash point and
+  the break pulls it back — ~60 ms of curve at typical latency, invisible below ~50×. A crash during
+  a network stall shows the same effect for the length of the stall; nothing but the crash message
+  can end a round on screen. Accepted, and stated here so nobody "fixes" it by guessing ahead.
 
 ## Rules
 
