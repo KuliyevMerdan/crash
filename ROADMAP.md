@@ -17,7 +17,9 @@ committed crash point, server-time cash-out, the shared curve, the dependency ru
 enforced and proven against illegal fixtures, CI. **S1 landed 2026-09-30** — the contract completed
 (every payload defined, the chain's length and rotation decided) and the four packages that read
 it: `protocol`, `money`, `curve`, `fair`. **S2 landed 2026-09-30** — `packages/engine`, the round
-machine, conserving every minor unit over 10,000 seeded rounds. **S3 and S4 are next.**
+machine, conserving every minor unit over 10,000 seeded rounds. **S3 landed 2026-09-30** —
+`apps/server`: the loop, SQLite persistence that resumes a round mid-flight, the fairness
+endpoints, the dev surface. **S4 and C0 are next.**
 
 ---
 
@@ -28,7 +30,7 @@ machine, conserving every minor unit over 10,000 seeded rounds. **S3 and S4 are 
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI | — | ✅ (landed 2026-09-30) |
 | **S1** | `protocol` · `money` · `curve` · `fair` — the contracts everything reads | S0 | ✅ (landed 2026-09-30) |
 | **S2** | `engine` — the round machine, pure and headless | S1 | ✅ (landed 2026-09-30) |
-| **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ☐ |
+| **S3** | `apps/server` — Fastify + `ws`, the round loop, persistence | S2 | ✅ (landed 2026-09-30) |
 | **S4** | `tools/sim` — crash distribution + realised house edge | S2 | ☐ |
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ☐ |
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ☐ |
@@ -140,24 +142,33 @@ anywhere in sight.
 
 _2–3 days._
 
-- [ ] Fastify + `ws`. Every inbound frame parsed with its `@crash/protocol` schema before it reaches
-      the engine.
-- [ ] The round loop: `BETTING → RUNNING → CRASHED → pause → BETTING`, driven by timers, calling the
-      engine with the real clock.
-- [ ] **`receivedAt` stamped on frame receipt, before parsing or queuing** — server load must not
-      become a payout difference ([ADR-0002](docs/adr/ADR-0002-server-time-cashout.md)).
-- [ ] Broadcast: ticks every 100 ms, `betPlaced` / `playerCashedOut` fan-out, `crash` with the reveal.
-- [ ] Persistence behind one interface, in-memory + SQLite. **Chain state survives restart** and
-      resumes at the next unconsumed index.
-- [ ] `GET /fair/chains` and `GET /fair/:chainId/:chainIndex` for the verification page
-      (docs/protocol.md §3.3); health/readiness endpoints.
-- [ ] Server-side fault injection (latency, drop, disconnect) and dev-gated `forceCrashPoint`, with
-      the test that a production-mode server rejects a hand-crafted message carrying it.
-- [ ] Structured logs (pino) correlated on `roundId`; **a test that no log line ever contains an
-      unrevealed seed.**
+- [x] Fastify + `ws`. Every inbound frame parsed with its `@crash/protocol` schema before it reaches
+      the engine; unknown types dropped, malformed ones answered.
+- [x] The round loop: `BETTING → RUNNING → CRASHED → pause → BETTING`, one timer armed at the
+      engine's `nextDeadline`, the monotonic clock handed in. Every change is step → persist (one
+      transaction) → publish.
+- [x] **`receivedAt` stamped on frame receipt, before parsing or queuing** — the first line of the
+      handler. (That it holds *under load* is P0's assertion.)
+- [x] Broadcast: ticks every 100 ms, `betPlaced` / `playerCashedOut` fan-out, `crash` with the reveal.
+- [x] Persistence behind one interface, in-memory + SQLite, one contract suite. The engine is a
+      checkpoint per crash plus a journal replayed through the pure engine on boot. **Chain state
+      survives restart** and resumes at the next unconsumed index — and so does the round in flight.
+- [x] `GET /fair/chains` and `GET /fair/:chainId/:chainIndex` for the verification page
+      (docs/protocol.md §3.3); `/health` and `/ready` (naming the failed check).
+- [x] Server-side fault injection (latency, drop, disconnect) on the sender's own connection, and
+      dev-gated `forceCrashPoint` — both pinned in docs/protocol.md §9 and `packages/protocol` (D13:
+      a forced round claims no chain link) — with the test that a production-mode server drops a
+      hand-crafted frame carrying either.
+- [x] Structured logs (pino) correlated on `roundId`; **a test that no log line before a crash
+      contains its seed, and none ever contains `s₀`.**
+- [x] The boot contract: production refuses an in-memory store, a missing database and a dev chain
+      seed, naming every violation at once.
 
 **Done when:** two `wscat` sessions join the same round, one cashes out and one doesn't, the crash
 reveal verifies against the chain commit, and a restart mid-round resumes the chain correctly.
+**Met 2026-09-30** — as tests rather than by hand (`apps/server/src/server.test.ts`): two real `ws`
+clients in one round, the reveal checked against `GET /fair/chains` the way a stranger would, and
+two restarts on SQLite — mid-round, and after the crash moment had passed.
 
 ## Block S4 — `tools/sim`
 

@@ -73,7 +73,7 @@ export const pong = z.object({
 export const bettingOpen = z.object({
   type: z.literal('bettingOpen'),
   roundId: ulid,
-  chainIndex,
+  chainIndex: chainIndex.nullable(),
   bettingClosesAt: timestamp,
 });
 
@@ -145,7 +145,7 @@ export const crash = z.object({
   roundId: ulid,
   crashPoint: multiplier,
   crashedAt: timestamp,
-  fair: fairReveal,
+  fair: fairReveal.nullable(),
   settled: z.array(z.object({ betId: ulid, nick, won: z.boolean() })),
 });
 
@@ -197,6 +197,36 @@ export const SERVER_MESSAGE_TYPES = [
   'crash',
   'error',
 ] as const satisfies readonly ServerMessageType[];
+
+// ── Dev messages (§9) — outside the §2 table; a server decides whether it listens ──────────────
+
+export const devForceCrashPoint = z.object({
+  type: z.literal('devForceCrashPoint'),
+  crashPoint: multiplier,
+});
+
+export const devFaults = z.object({
+  type: z.literal('devFaults'),
+  latencyMs: z.int().min(0).max(10_000),
+  dropRate: z.number().min(0).max(1),
+});
+
+export const devDisconnect = z.object({ type: z.literal('devDisconnect') });
+
+export const devMessage = z.discriminatedUnion('type', [
+  devForceCrashPoint,
+  devFaults,
+  devDisconnect,
+]);
+
+export type DevMessage = z.infer<typeof devMessage>;
+export type DevMessageType = DevMessage['type'];
+
+export const DEV_MESSAGE_TYPES = [
+  'devForceCrashPoint',
+  'devFaults',
+  'devDisconnect',
+] as const satisfies readonly DevMessageType[];
 
 // ── HTTP (§3.3) ──────────────────────────────────────────────────────────────────────────────────
 

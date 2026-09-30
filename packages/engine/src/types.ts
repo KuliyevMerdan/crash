@@ -40,8 +40,8 @@ export type Bet =
 
 // ── Rounds ───────────────────────────────────────────────────────────────────────────────────────
 
-interface RoundBase {
-  readonly roundId: string;
+/** The chain link a round was drawn from — exactly what `crash.fair` reveals. */
+export interface ChainLink {
   readonly chainId: number;
   readonly chainIndex: number;
   /**
@@ -50,6 +50,12 @@ interface RoundBase {
    */
   readonly seed: string;
   readonly previousHash: string;
+}
+
+interface RoundBase {
+  readonly roundId: string;
+  /** `null` for a forced dev round — typed in, not drawn, so it claims no link (§9, D13). */
+  readonly link: ChainLink | null;
   /** Decided at `openRound`, before any bet exists (ADR-0001). Secret until the crash, like the seed. */
   readonly crashPoint: number;
   readonly bettingClosesAt: number;
@@ -118,10 +124,16 @@ export type EngineEvent =
   | {
       readonly type: 'openRound';
       readonly roundId: string;
-      readonly chain: { readonly id: number; readonly salt: string };
-      readonly chainIndex: number;
-      readonly seed: string;
-      readonly previousHash: string;
+      readonly source:
+        | {
+            readonly kind: 'chain';
+            readonly chain: { readonly id: number; readonly salt: string };
+            readonly chainIndex: number;
+            readonly seed: string;
+            readonly previousHash: string;
+          }
+        /** Development only — the server never builds one in production (§9). */
+        | { readonly kind: 'forced'; readonly crashPoint: number };
     }
   | {
       readonly type: 'placeBet';

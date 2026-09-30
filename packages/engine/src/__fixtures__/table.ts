@@ -99,14 +99,28 @@ export class Table {
       {
         type: 'openRound',
         roundId,
-        chain: { id: 1, salt: SALT },
-        chainIndex: index,
-        seed: CHAIN.seedAt(index),
-        previousHash: index === 1 ? CHAIN.commit : CHAIN.seedAt(index - 1),
+        source: {
+          kind: 'chain',
+          chain: { id: 1, salt: SALT },
+          chainIndex: index,
+          seed: CHAIN.seedAt(index),
+          previousHash: index === 1 ? CHAIN.commit : CHAIN.seedAt(index - 1),
+        },
       },
       at ?? Math.max(this.now, nextDeadline(this.state).at),
     );
     return { roundId, crashPoint: crashPointAt(index) };
+  }
+
+  /** Open a forced dev round (§9) with exactly this crash point. */
+  openForced(crashPoint: number, at?: number): string {
+    this.rounds += 1;
+    const roundId = ulid('R', this.rounds);
+    this.apply(
+      { type: 'openRound', roundId, source: { kind: 'forced', crashPoint } },
+      at ?? Math.max(this.now, nextDeadline(this.state).at),
+    );
+    return roundId;
   }
 
   advance(to: number): readonly Effect[] {

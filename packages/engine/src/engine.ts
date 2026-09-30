@@ -14,6 +14,7 @@ import {
 import type {
   AutoCashOut,
   Bet,
+  ChainLink,
   CrashedRound,
   Effect,
   EngineEvent,
@@ -154,10 +155,7 @@ function crash(s: EngineState, out: Effect[]): EngineState {
 
   const crashed: CrashedRound = {
     roundId: round.roundId,
-    chainId: round.chainId,
-    chainIndex: round.chainIndex,
-    seed: round.seed,
-    previousHash: round.previousHash,
+    link: round.link,
     crashPoint: round.crashPoint,
     bettingClosesAt: round.bettingClosesAt,
     bets,
@@ -221,21 +219,41 @@ function openRound(
       `the pause after ${round.roundId} runs until ${round.crashedAt + s.config.crashedPhaseMs}`,
     );
   }
-  // The reveal must verify, so refuse a seed that does not link to its claimed predecessor now,
-  // rather than publish a round a stranger will catch later.
-  if (!verifyLink(event.seed, event.previousHash)) {
-    throw new EngineError(`seed for chain ${event.chain.id}:${event.chainIndex} does not link`);
+  const { source } = event;
+  let link: ChainLink | null = null;
+  let crashPoint: number;
+  if (source.kind === 'chain') {
+    // The reveal must verify, so refuse a seed that does not link to its claimed predecessor now,
+    // rather than publish a round a stranger will catch later.
+    if (!verifyLink(source.seed, source.previousHash)) {
+      throw new EngineError(`seed for chain ${source.chain.id}:${source.chainIndex} does not link`);
+    }
+    link = {
+      chainId: source.chain.id,
+      chainIndex: source.chainIndex,
+      seed: source.seed,
+      previousHash: source.previousHash,
+    };
+    // Decided here — before betting opens, before any bet exists (ADR-0001).
+    crashPoint = crashPointOf(source.seed, source.chain.salt, s.config.houseEdgeBps);
+  } else {
+    // A forced dev round (§9): the caller only builds one on a development server.
+    if (
+      !Number.isInteger(source.crashPoint) ||
+      source.crashPoint < 100 ||
+      source.crashPoint > 100_000_000
+    ) {
+      throw new EngineError(`not a crash point: ${source.crashPoint}`);
+    }
+    crashPoint = source.crashPoint;
   }
-
-  // Decided here — before betting opens, before any bet exists (ADR-0001).
-  const crashPoint = crashPointOf(event.seed, event.chain.salt, s.config.houseEdgeBps);
   const bettingClosesAt = now + s.config.bettingPhaseMs;
 
   out.push(
     broadcast({
       type: 'bettingOpen',
       roundId: event.roundId,
-      chainIndex: event.chainIndex,
+      chainIndex: link?.chainIndex ?? null,
       bettingClosesAt,
     }),
   );
@@ -245,10 +263,7 @@ function openRound(
     round: {
       phase: 'BETTING',
       roundId: event.roundId,
-      chainId: event.chain.id,
-      chainIndex: event.chainIndex,
-      seed: event.seed,
-      previousHash: event.previousHash,
+      link,
       crashPoint,
       bettingClosesAt,
       bets: new Map(),
@@ -516,7 +531,7 @@ export function roundSnapshotOf(s: EngineState): RoundSnapshot | null {
       amount: bet.amount,
       cashedOutAt: bet.status === 'CASHED_OUT' ? bet.multiplier : null,
     }));
-  const common = { roundId: round.roundId, chainIndex: round.chainIndex, bets };
+  const common = { roundId: round.roundId, chainIndex: round.link?.chainIndex ?? null, bets };
   switch (round.phase) {
     case 'BETTING':
       return { ...common, phase: 'BETTING', bettingClosesAt: round.bettingClosesAt };
@@ -635,13 +650,9 @@ function baseOf(bet: Bet) {
   };
 }
 
-function revealOf(round: CrashedRound) {
-  return {
-    chainId: round.chainId,
-    chainIndex: round.chainIndex,
-    seed: round.seed,
-    previousHash: round.previousHash,
-  };
+/** What `crash.fair` carries: the link, now public — or `null` for a forced round (D13). */
+function revealOf(round: CrashedRound): ChainLink | null {
+  return round.link;
 }
 
 function acceptedOf(roundId: string, bet: Bet): ServerMessage {

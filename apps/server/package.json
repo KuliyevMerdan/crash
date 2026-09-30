@@ -17,17 +17,27 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
   },
   "dependencies": {
-    "@crash/engine": "workspace:*",
-    "@crash/protocol": "workspace:*",
-    "@crash/money": "workspace:*",
     "@crash/curve": "workspace:*",
-    "@crash/fair": "workspace:*"
+    "@crash/engine": "workspace:*",
+    "@crash/fair": "workspace:*",
+    "@crash/money": "workspace:*",
+    "@crash/protocol": "workspace:*",
+    "better-sqlite3": "catalog:",
+    "fastify": "catalog:",
+    "pino": "catalog:",
+    "ws": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "catalog:",
     "@types/node": "^20",
+    "@types/ws": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { CLIENT_MESSAGE_TYPES, ERROR_CODES, SERVER_MESSAGE_TYPES } from '@crash/protocol';
+import {
+  CLIENT_MESSAGE_TYPES,
+  DEV_MESSAGE_TYPES,
+  ERROR_CODES,
+  SERVER_MESSAGE_TYPES,
+} from '@crash/protocol';
 import { describe, expect, it } from 'vitest';
 import { ROOT } from './lint-runner.js';
 
@@ -46,6 +51,14 @@ describe('docs/protocol.md and @crash/protocol name the same contract', () => {
 
   it('documents every server message the schemas accept, and no other', () => {
     expect(server.sort()).toEqual([...SERVER_MESSAGE_TYPES].sort());
+  });
+
+  it('lists exactly the dev messages in §9', () => {
+    const rows = section('## 9. Environment', '## 10.')
+      .split('\n')
+      .filter((line) => line.startsWith('| `dev'));
+    const names = rows.map((line) => /`(\w+)`/.exec(line)?.[1]);
+    expect(names.sort()).toEqual([...DEV_MESSAGE_TYPES].sort());
   });
 
   it.each(['PLAYER', 'SESSION', 'SYSTEM'] as const)('lists exactly the %s codes in §6', (cls) => {

@@ -7,6 +7,8 @@ import {
   chainListing,
   classOf,
   decodeFrame,
+  DEV_MESSAGE_TYPES,
+  parseClientOrDevMessage,
   errorMessageOf,
   gameConfig,
   myBet,
@@ -262,5 +264,53 @@ describe('the HTTP surface (§3.3)', () => {
     expect(revealedRound.safeParse({ ...FAIR, crashPoint: 247, roundId: IDS.ROUND }).success).toBe(
       true,
     );
+  });
+});
+
+describe('forced dev rounds claim no link (§9, D13)', () => {
+  it('parses a bettingOpen, a snapshot and a crash with no chain index and no reveal', () => {
+    expect(parseServerMessage({ ...SERVER_FIXTURES.bettingOpen, chainIndex: null }).kind).toBe(
+      'ok',
+    );
+    expect(parseServerMessage({ ...SERVER_FIXTURES.crash, fair: null }).kind).toBe('ok');
+    expect(
+      roundSnapshot.safeParse({
+        roundId: IDS.ROUND,
+        chainIndex: null,
+        bets: [],
+        phase: 'CRASHED',
+        startedAt: 1,
+        crashedAt: 2,
+        crashPoint: 300,
+        fair: null,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe('dev messages are heard only by a server that listens (§9)', () => {
+  const force = { type: 'devForceCrashPoint', crashPoint: 300 };
+  const faults = { type: 'devFaults', latencyMs: 250, dropRate: 0.2 };
+
+  it('are unknown types to the plain client parser — a production server drops them', () => {
+    expect(parseClientMessage(force)).toEqual({ kind: 'unknown-type', type: 'devForceCrashPoint' });
+  });
+
+  it('are parsed when enabled, one by one', () => {
+    const faultsOnly = parseClientOrDevMessage(['devFaults', 'devDisconnect']);
+    expect(faultsOnly(faults)).toEqual({ kind: 'ok', message: faults });
+    expect(faultsOnly(force)).toEqual({ kind: 'unknown-type', type: 'devForceCrashPoint' });
+    const everything = parseClientOrDevMessage(DEV_MESSAGE_TYPES);
+    expect(everything(force)).toEqual({ kind: 'ok', message: force });
+    expect(everything(CLIENT_FIXTURES.cashOut)).toEqual({
+      kind: 'ok',
+      message: CLIENT_FIXTURES.cashOut,
+    });
+  });
+
+  it('are malformed, not dropped, when enabled and wrong', () => {
+    const everything = parseClientOrDevMessage(DEV_MESSAGE_TYPES);
+    expect(everything({ type: 'devFaults', latencyMs: -1, dropRate: 0 }).kind).toBe('malformed');
+    expect(everything({ type: 'devForceCrashPoint', crashPoint: 99 }).kind).toBe('malformed');
   });
 });

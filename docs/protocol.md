@@ -135,7 +135,9 @@ and none exceeds `100000000` (`1,000,000.00×`, §3.2). Same reason money is min
 not representable, and a payout must not depend on how a runtime rounds it.
 
 `chainIndex` is the round's position in the chain (§3.3) — public from `bettingOpen` on, because
-knowing *which* link a round will reveal says nothing about *what* it contains.
+knowing *which* link a round will reveal says nothing about *what* it contains. It is `null` only
+for a **forced round** (§9), which a development server alone can produce: a round whose crash
+point was typed in rather than drawn from the chain has no link to claim.
 
 ### 2.4 `placeBet` (c→s)
 
@@ -202,7 +204,8 @@ dev-build error (§9).
 ```
 
 `fair` is the reveal, and it appears in `crash`, in a `CRASHED` snapshot, and from
-`GET /fair/:chainId/:chainIndex` — never before the crash. `previousHash` is the seed of the round
+`GET /fair/:chainId/:chainIndex` — never before the crash. It is `null` for a forced round (§9):
+there is no seed to reveal, and a forced result must never be dressed as a verifiable one. `previousHash` is the seed of the round
 before (the chain commit, for `chainIndex` 1), so a client verifies the link as
 `SHA256(seed) = previousHash` without a round trip (§3.3). `settled` lists every bet in the round
 with whether it won; the money for a win already moved at its `cashOutResult`, and a loss moves
@@ -435,13 +438,31 @@ liveness check: no `pong` for 3 intervals and the client reconnects.
 
 - `__ASSERT_CURVE__` (dev builds) — compare each `tick.multiplier` against the locally computed one
   and throw on a mismatch over one step (0.01×). Catches curve drift the moment it appears.
-- `forceCrashPoint` — dev-mode only, **gated on the server**, with a test that a production-mode
-  server rejects a hand-crafted message carrying it. The stripped client cannot send it, so nothing
-  else would catch a regression there. Its message shape, and what a forced round reveals in place
-  of a chain seed it did not use, are pinned with the server in **S3**; nothing in `packages/protocol`
-  describes it yet.
-- Fault injection (latency, drop, disconnect) is server-side and toggled from the debug panel, so a
-  reviewer can watch the client survive a bad network on the live demo.
+Three **dev messages**, c→s, outside the §2 table because a production client never sends them.
+The server decides whether it listens; a server that does not treats them as unknown types —
+dropped and logged, never answered (§1, invariant 9) — so their existence is not advertised.
+
+| Type | Payload | Accepted when |
+| --- | --- | --- |
+| `devForceCrashPoint` | `{ crashPoint }` — hundredths, `100 … 100000000` | **development only** (`CRASH_ENV=development`) |
+| `devFaults` | `{ latencyMs, dropRate }` — `0 … 10000` ms, `0 … 1` | fault injection enabled (`CRASH_FAULTS=on`) |
+| `devDisconnect` | `{}` | fault injection enabled |
+
+- **`devForceCrashPoint`** makes the **next round opened** a *forced round*: its crash point is the
+  one given, it consumes no chain index, and it says so on the wire — `chainIndex: null` in
+  `bettingOpen` and every snapshot, `fair: null` in `crash`. A forced round affects everyone at the
+  table, which is why it exists only on a development server; it is what the E2E suite uses to
+  make a round deterministic. A production server drops the message, and a test holds it to that
+  with a hand-crafted frame — the stripped client cannot send one, so nothing else would catch a
+  regression.
+- **`devFaults`** and **`devDisconnect`** break **the sender's own connection only**: outbound
+  messages are delayed by `latencyMs` and each dropped with probability `dropRate`; inbound frames
+  are delayed by `latencyMs` *before* they are stamped (the frame has not "arrived" yet, so the
+  delay is honest network, not server load — ADR-0002); `devDisconnect` terminates the socket as
+  a dead network would. Because they touch nobody else, they can stay on for the live demo, where a
+  reviewer breaks their own network from the debug panel and watches the client recover.
+- `__ASSERT_CURVE__` (dev builds) — compare each `tick.multiplier` against the locally computed one
+  and throw on a mismatch over one step (0.01×). Catches curve drift the moment it appears.
 
 ## 10. Deliberately not in v1
 
@@ -506,3 +527,8 @@ demo — logged as the difference from a real operator rather than hidden.
 **D12 — Hashes on the wire: `sha256:`-prefixed or bare?** Bare lowercase hex. `previousHash` *is* the
 previous seed, so a prefix on one and not the other would make the two spellings of one value
 unequal as strings.
+
+**D13 — What does a forced round reveal?** Nothing: `chainIndex: null`, `fair: null`. Rejected:
+overriding the crash point of a real chain round (its reveal would then fail verification — a
+forced round passing itself off as a broken real one) and a separate dev chain (it would verify,
+which is worse: a typed-in number with a valid proof).

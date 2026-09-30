@@ -43,7 +43,8 @@ export const myBet = z.discriminatedUnion('status', [
   z.object({ ...myBetFields, status: z.literal('LOST') }),
 ]);
 
-const roundFields = { roundId: ulid, chainIndex, bets: z.array(publicBet) };
+/** `chainIndex` is `null` only for a forced dev round (§9), which claims no link in the chain. */
+const roundFields = { roundId: ulid, chainIndex: chainIndex.nullable(), bets: z.array(publicBet) };
 
 /** The round, one variant per phase, each with exactly the fields true in it (§2.3). */
 export const roundSnapshot = z.discriminatedUnion('phase', [
@@ -55,7 +56,8 @@ export const roundSnapshot = z.discriminatedUnion('phase', [
     startedAt: timestamp,
     crashedAt: timestamp,
     crashPoint: multiplier,
-    fair: fairReveal,
+    /** `null` only for a forced dev round: no seed to reveal, and never dressed as verifiable (D13). */
+    fair: fairReveal.nullable(),
   }),
 ]);
 

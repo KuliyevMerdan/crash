@@ -87,10 +87,13 @@ describe('the phases, driven by time', () => {
         {
           type: 'openRound',
           roundId: ulid('R', 1),
-          chain: { id: 1, salt: 'x' },
-          chainIndex: 1,
-          seed: 'ab'.repeat(32),
-          previousHash: 'cd'.repeat(32),
+          source: {
+            kind: 'chain',
+            chain: { id: 1, salt: 'x' },
+            chainIndex: 1,
+            seed: 'ab'.repeat(32),
+            previousHash: 'cd'.repeat(32),
+          },
         },
         0,
       ),
@@ -486,8 +489,7 @@ describe('a retry that straddles the round boundary gets its original answer (§
 describe('nothing secret leaves before the crash (ADR-0001)', () => {
   it('keeps the seed and the crash point out of every effect, snapshot and tick until the crash', () => {
     const { table, crashPoint, startedAt } = tableWith((p) => p >= 3000);
-    const round = table.state.round;
-    const seed = round?.seed ?? '';
+    const seed = table.state.round?.link?.seed ?? '';
     table.bet('alice', B1, 500, 20_000);
     const crashAt = startedAt + elapsedAt(K, crashPoint);
     const before: unknown[] = [];
@@ -554,5 +556,32 @@ describe('snapshots and ticks', () => {
     table.apply({ type: 'renamePlayer', playerId: 'alice', nick: 'alice2' });
     expect(roundSnapshotOf(table.state)?.bets[0]?.nick).toBe('alice');
     expect(table.state.players.get('alice')?.nick).toBe('alice2');
+  });
+});
+
+describe('a forced dev round (§9, D13)', () => {
+  it('crashes at exactly the typed-in point, and claims no chain link anywhere on the wire', () => {
+    const table = new Table();
+    table.addPlayer('alice');
+    const roundId = table.openForced(250, 0);
+    expect(table.messages()).toEqual([
+      { type: 'bettingOpen', roundId, chainIndex: null, bettingClosesAt: 7000 },
+    ]);
+    table.bet('alice', B1, 1000, 200);
+    table.runToCrash();
+    expect(table.messages('crash')).toEqual([
+      expect.objectContaining({ crashPoint: 250, crashedAt: 7000 + elapsedAt(K, 250), fair: null }),
+    ]);
+    expect(roundSnapshotOf(table.state)).toMatchObject({
+      chainIndex: null,
+      fair: null,
+      crashPoint: 250,
+    });
+    expect(table.balance('alice')).toBe(100_000 - 1000 + 2000);
+  });
+
+  it('refuses a crash point outside the range', () => {
+    const table = new Table();
+    expect(() => table.openForced(99, 0)).toThrow(EngineError);
   });
 });

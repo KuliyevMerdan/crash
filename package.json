@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "dev:server": "pnpm --filter @crash/server dev",
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
     "test:root": "vitest run",

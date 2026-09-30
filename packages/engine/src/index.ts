@@ -23,6 +23,7 @@ export type {
   Bet,
   Round,
   CrashedRound,
+  ChainLink,
   AutoCashOut,
   EngineState,
   EngineEvent,

@@ -5,14 +5,14 @@ repository.
 
 ## Project status
 
-> ⚠️ **The round exists; nothing serves it yet.** **S0, S1 and S2 landed 2026-09-30.** S0: the
-> workspace, strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*,
-> CI. S1: `protocol`, `money`, `curve`, `fair` — every message in
-> [`docs/protocol.md`](docs/protocol.md) as a zod schema, the curve and its exact inverse, the crash
-> point pinned against an independent implementation, the chain. S2: `packages/engine`, the round
-> machine — pure, headless, and proven over 10,000 seeded rounds to conserve every minor unit.
-> ADR-0001 and ADR-0002 are accepted. **S3 (`apps/server`) and S4 (`tools/sim`) are next, in
-> either order.**
+> ⚠️ **The server plays; no client draws it yet.** **S0–S3 landed 2026-09-30.** S0: the workspace,
+> strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
+> `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
+> zod schema, the curve and its exact inverse, the crash point pinned against an independent
+> implementation, the chain. S2: `packages/engine`, the round machine — pure, and proven over 10,000
+> seeded rounds to conserve every minor unit. S3: `apps/server` — Fastify + `ws`, the round loop,
+> SQLite persistence that survives a restart mid-round, the fairness endpoints, the dev surface.
+> ADR-0001 and ADR-0002 are accepted. **S4 (`tools/sim`) and C0 (`client-core`) are next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -87,7 +87,7 @@ fills them.
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
 | `packages/client-core` | WebSocket client, clock sync, reconnect, typed event stream out. **No DOM** | C0 |
 | `packages/renderer` | the curve, the counter, the crash. Canvas 2D. **No React, no protocol** | C1 |
-| `apps/server` | Fastify + `ws` — the round loop, broadcast, persistence | S3 |
+| `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
 | `apps/web` | Vite + React shell around `renderer` + `client-core` | C1–C3 |
 | `tools/sim` | N-million-round run: crash distribution, realised house edge, RTP report | S4 |
 
@@ -190,12 +190,43 @@ How the engine (**S2**) is shaped, because the server and the sim both lean on i
   `auditMoney` can state the conservation law: every minor unit granted is in a balance, a stake
   still riding, or the house.
 - **The idempotency window is the current round and the previous one.** A retry straddling the
-  boundary gets its original answer; a `betId` from further back is not remembered by the engine
-  (see Gaps — persistence, S3).
+  boundary gets its original answer; a `betId` from further back is the server's to refuse, from the
+  store (below).
 
-Persistence sits behind one interface with two implementations: in-memory (tests, sim) and SQLite
-(the deployed demo). The chain must survive a restart — a regenerated chain silently invalidates
-every past verification ([ADR-0001](docs/adr/ADR-0001-committed-crash-point.md)).
+How the server (**S3**) is shaped around it:
+
+- **Every change is step → persist → publish** (`Game.commit`). The engine steps first — it is pure,
+  so that commits to nothing — then the event and everything it implies (a consumed chain link, a
+  claimed `betId`, at a crash the checkpoint and the reveal) are written in **one transaction**, and
+  only then is the new state adopted and its effects delivered. Nothing reaches a socket that is not
+  on disk; a crash between the write and the send replays to the same state, and the client's retry
+  gets its original answer.
+- **Persistence is a journal and a checkpoint** behind the `Store` port — `memoryStore` for tests
+  and a throwaway dev server, `sqliteStore` (better-sqlite3: synchronous, so no `await` lets another
+  event slip between step and write; WAL with `synchronous = FULL`) for everything else, both held
+  to one contract suite. After each crash the engine state is checkpointed and the journal emptied;
+  every player event since is journaled with its `now` (`advance` is not — replay recomputes it).
+  **A restart replays the journal onto the checkpoint through the pure engine**, then advances to
+  the present, so an auto cash-out or a bust that fell due while the process was down settles at
+  its scheduled moment. `tests`: a restart mid-round resumes the same round, bet and balance; a
+  restart after the crash moment finds the 1.50× auto cash-out paid and the reveal published.
+- **The chain** (`ChainBook`) is generated once — from `CRASH_DEV_CHAIN_SEED` in development, from
+  the CSPRNG otherwise — and only ever added to: a chain whose `s₀` no longer produces its published
+  commit refuses to load. The next chain is published with `rotateAt` rounds left; its ≈0.7 s of
+  hashing runs in the pause after a crash, when nothing is in flight to be stamped late.
+- **`receivedAt` is the first line of the frame handler**, before decoding or parsing. A simulated
+  slow uplink (`devFaults`) delays the *arrival*, so it is stamped after the delay — network, not
+  load.
+- **`betId`s are single-use for good**: the store keeps every accepted one, and a reuse the engine's
+  one-round memory would miss is refused before the event reaches it.
+- **The boot contract** (`config.ts`): a production server refuses `:memory:`, a missing database
+  and a dev chain seed, naming every violation at once. `devForceCrashPoint` is heard only in
+  development; `devFaults`/`devDisconnect` only with `CRASH_FAULTS=on` (default in development,
+  opt-in in production for the live demo, since they touch only the sender's own socket). A server
+  that does not listen drops them as unknown types — tested with hand-crafted frames.
+- **Logs are one pino line per thing that happened, keyed by `roundId`**, and never carry a seed
+  before its reveal — the only line with one is the crash, where it is public. Tested over a real
+  round: no line before the crash contains its seed, and no line ever contains `s₀`.
 
 ### Testing layers
 
@@ -206,7 +237,7 @@ every past verification ([ADR-0001](docs/adr/ADR-0001-committed-crash-point.md))
 | Contract sync | `tests/protocol-doc.test.ts`: the §2 message table and §6 error table name exactly what the schemas accept · `tests/constants.test.ts`: the multiplier range agrees across `curve`, `fair`, `protocol` | ✅ S1 |
 | Engine | every phase transition and every player refusal · a press 1 ms either side of the crash · racing presses on one `betId` · auto against manual in the same and the previous millisecond · auto cash-outs paying their target when processed late · retries across the round boundary · nothing secret in any effect, snapshot or tick before the crash · and **10,000 seeded rounds** (≈63k bets, ≈22k manual wins, ≈11k late presses, ≈6k retries) with money audited after every step and every bet resolved exactly once | ✅ S2 |
 | Statistical | `tools/sim` over ≥10⁶ rounds: `P(crash ≥ m) ≈ 0.99/m`, realised edge within tolerance of `houseEdgeBps`, the same expected return for every cash-out target (docs/protocol.md §3.2) | S4 |
-| Integration | a real socket, a real round, fault injection | S3, P0 |
+| Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 
 The statistical layer is the one that would be missing from a weaker version of this project, and
@@ -236,7 +267,10 @@ Units resolve each other through their built `dist/` and package `exports`, orde
 `^build` — not through TypeScript project references, which ROADMAP S0 planned and which would
 duplicate what Turborepo already orders. `build` therefore runs before `typecheck` and the tests.
 
-Still to come: `pnpm dev` (server + web, watch mode) with **S3/C1**, and
+`pnpm dev:server` runs `apps/server` in watch mode (development: in-memory store, faults on, a
+fresh chain each start unless `CRASH_DEV_CHAIN_SEED` is set). Its knobs are environment variables
+read in `apps/server/src/config.ts` — `CRASH_DB`, `CRASH_GROWTH_RATE`, `CRASH_BETTING_MS`,
+`CRASH_CHAIN_LENGTH` and friends. Still to come: `pnpm dev` (server + web) with **C1**, and
 `pnpm sim -- --rounds 1000000` (distribution + house-edge report) with **S4**.
 
 **Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
@@ -256,15 +290,12 @@ writing:
 
 - **Betting-phase length under real latency.** 7 s is a placeholder. **P0** measures whether a
   300 ms client can reliably place a bet in it.
-- **`betId` uniqueness beyond one round.** The engine remembers the current round's bets and the
-  previous round's (enough for every retry that straddles a boundary), so a client that reuses a
-  `betId` from three rounds ago with the current `roundId` is accepted as a new bet — which breaks
-  docs/protocol.md §7's "a `betId` is single-use". **S3**'s persistence closes it with a uniqueness
-  constraint on `betId`, checked before the event reaches the engine.
-- **The dev surface on the wire.** `forceCrashPoint` is gated on the server (docs/protocol.md §9),
-  but its message shape — and what a forced round reveals in place of a chain seed it did not use,
-  so that a forced result can never pass for a verified one — is unwritten. **S3** pins it in the
-  document and `packages/protocol` together.
+- **Half-open sockets.** The server never pings; a client that vanished without a close frame
+  stays in the broadcast set until TCP gives up. Harmless at demo scale, and exactly what **P0**'s
+  "half-open connections" item is for — a server-side heartbeat, measured under load.
+- **Sessions never expire.** A token names a play-money wallet forever, and `SESSION_INVALID` only
+  ever means "unknown". Fine for the demo; a real session lifetime would be a **P1** decision with
+  the host.
 - **The salt is fixed, not beacon-derived.** docs/protocol.md §3.3 records it: a real-money operator
   would take each chain's salt from public randomness published after the commit, so `s₀` could not
   be ground for a favourable chain. Accepted for a play-money demo; revisit only if the project
@@ -274,7 +305,8 @@ writing:
   Render — has no persistent disk and sleeps after 15 idle minutes. Worth noting before P1 picks:
   the chain is fully determined by `s₀` and its length, so "never regenerate" means *never draw a new
   `s₀`* — `s₀` can live as a secret, and only the consumed index needs durable storage. **P1**
-  decides the host and where that index lives.
+  decides the host and where that index lives. S3 made the stakes concrete: the SQLite file holds
+  the balances and the journal too, so a host without a disk loses more than the cursor.
 - **What the curve looks like past ~20×.** Exponential growth leaves the viewport fast. Rescaling
   strategy is a **C1** question and it is a real design problem, not a detail.
 

@@ -4,11 +4,12 @@ A **real-time multiplayer crash game** — one round, every player in it at once
 climbs until it busts. Node + TypeScript on the server, Canvas 2D in the browser, WebSocket between
 them.
 
-> ⚠️ **Status (2026-09-30): the round machine runs, headless; no server yet.** **S0** (the workspace
-> and its enforced boundaries), **S1** (the wire contract as schemas, the curve, money, the
-> provably-fair chain) and **S2** (the pure round engine, 10,000 seeded rounds conserving every
-> minor unit) have landed. See [`ROADMAP.md`](ROADMAP.md) — **S3** (the server) and **S4** (the
-> house-edge simulation) are next.
+> ⚠️ **Status (2026-09-30): the server plays; no client draws it yet.** **S0** (the workspace and its
+> enforced boundaries), **S1** (the wire contract as schemas, the curve, money, the provably-fair
+> chain), **S2** (the pure round engine) and **S3** (the server: a shared round over WebSocket,
+> SQLite persistence that survives a restart mid-round, `GET /fair/*`) have landed. See
+> [`ROADMAP.md`](ROADMAP.md) — **S4** (the house-edge simulation) and **C0** (the client core) are
+> next.
 
 ## What makes it interesting to build
 

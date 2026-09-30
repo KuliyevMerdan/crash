@@ -194,8 +194,10 @@ describe(`${ROUNDS} seeded rounds through the engine alone`, () => {
       const crashed = table.state.round;
       if (crashed.phase !== 'CRASHED') throw new Error('not crashed');
       expect(crashed.crashedAt).toBe(crashAt);
-      expect(verifyLink(crashed.seed, crashed.previousHash)).toBe(true);
-      expect(crashPointOf(crashed.seed, SALT, CONFIG.houseEdgeBps)).toBe(crashPoint);
+      const link = crashed.link;
+      if (link === null) throw new Error('a chain round lost its link');
+      expect(verifyLink(link.seed, link.previousHash)).toBe(true);
+      expect(crashPointOf(link.seed, SALT, CONFIG.houseEdgeBps)).toBe(crashPoint);
       previousRoundId = roundId;
     }
 
