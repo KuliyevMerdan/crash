@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_CRASH_POINT, crashPoint, crashPointFromBits } from './index.js';
+import {
+  MAX_CRASH_POINT,
+  bytesToHex,
+  crashPoint,
+  crashPointFromBits,
+  crashPointTrace,
+  hexToBytes,
+  hmacSha256,
+  utf8,
+} from './index.js';
 
 const TWO_52 = 2n ** 52n;
 
@@ -55,5 +64,18 @@ describe('crashPoint', () => {
   it('depends on the salt', () => {
     const seed = 'ab'.repeat(32);
     expect(crashPoint(seed, 'one', 100)).not.toBe(crashPoint(seed, 'two', 100));
+  });
+});
+
+describe('crashPointTrace — the working the verification page shows', () => {
+  it('is crashPoint, with the HMAC and the 52 bits it read', () => {
+    for (let i = 0; i < 50; i += 1) {
+      const seed = bytesToHex(new Uint8Array(32).fill(i * 5 + 1));
+      const trace = crashPointTrace(seed, 'crash-demo-chain-1', 100);
+      expect(trace.crashPoint).toBe(crashPoint(seed, 'crash-demo-chain-1', 100));
+      expect(trace.hmac).toBe(bytesToHex(hmacSha256(hexToBytes(seed), utf8('crash-demo-chain-1'))));
+      expect(trace.r).toBe(BigInt(`0x${trace.hmac.slice(0, 13)}`));
+      expect(trace.crashPoint).toBe(crashPointFromBits(trace.r, 100));
+    }
   });
 });

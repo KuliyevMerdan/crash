@@ -4,15 +4,18 @@ A **real-time multiplayer crash game** — one round, every player in it at once
 climbs until it busts. Node + TypeScript on the server, Canvas 2D in the browser, WebSocket between
 them.
 
-> ⚠️ **Status (2026-09-30): playable — bet, watch, cash out.** **S0–S4 and C0–C2** have landed: the workspace and its enforced boundaries, the wire contract as schemas, the
-> curve, money and the provably-fair chain, the pure round engine, the server (a shared round over
-> WebSocket, SQLite persistence that survives a restart mid-round, `GET /fair/*`), a million-round
-> simulation in which every flat strategy returns 99%, and the client core — reconnect, clock sync,
-> idempotent requests — held to the server through 20 dropped connections — and the curve itself on
-> Canvas 2D, holding 60 fps on a throttled phone profile through a 100× round, and a bet panel whose
-> cash-out tells you what your press will get before you make it. See [`ROADMAP.md`](ROADMAP.md) —
-> **C3** (the player list, history and the verification page) is next. `pnpm dev` and open
-> <http://localhost:5173>.
+> ⚠️ **Status (2026-10-01): playable and verifiable — bet, watch, cash out, then check the round
+> yourself.** **S0–S4 and C0–C3** have landed: the workspace and its enforced boundaries, the wire
+> contract as schemas, the curve, money and the provably-fair chain, the pure round engine, the
+> server (a shared round over WebSocket, SQLite persistence that survives a restart mid-round,
+> `GET /fair/*`), a million-round simulation in which every flat strategy returns 99%, and the client
+> core — reconnect, clock sync, idempotent requests — held to the server through 20 dropped
+> connections — and the curve itself on Canvas 2D, holding 60 fps on a throttled phone profile
+> through a 100× round, and a bet panel whose cash-out tells you what your press will get before you
+> make it. C3 put the table on screen: the live player list, the last 30 crash points, and a
+> verification page that recomputes any round in the browser and walks it back to the published
+> commit — and catches a server that lies about it. See [`ROADMAP.md`](ROADMAP.md) — **P0**
+> (hardening under load and faults) is next. `pnpm dev` and open <http://localhost:5173>.
 
 ## What makes it interesting to build
 

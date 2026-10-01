@@ -75,6 +75,14 @@ describe('the checkpoint codec', () => {
     expect(back).toEqual(state);
   });
 
+  it('loads a checkpoint written before history carried chain links, with no link', () => {
+    const json = JSON.parse(encodeState(played()));
+    json.history = [{ roundId: 'R0', crashPoint: 318 }];
+    expect(decodeState(JSON.stringify(json), DEFAULT_GAME).history).toEqual([
+      { roundId: 'R0', crashPoint: 318, link: null },
+    ]);
+  });
+
   it('refuses a checkpoint that does not parse, rather than play on from it', () => {
     const json = JSON.parse(encodeState(played()));
     json.players[0].balance = 12.5;

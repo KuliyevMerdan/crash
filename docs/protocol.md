@@ -101,9 +101,18 @@ the slot's `pendingRound`, and it is why resume is a two-line problem here rathe
   "chain": { "id": 1, "commit": "9f2c…", "salt": "crash-demo-chain-1", "length": 1000000 },  // §3.3
   "round": { /* §2.3 */ },
   "myBets": [ /* §2.10 — my bets in this round only */ ],
-  "history": [ { "roundId": "…", "crashPoint": 247 }, … ]   // last ~30, newest first
+  "history": [                                 // last ~30, newest first
+    { "roundId": "…", "crashPoint": 247, "link": { "chainId": 1, "chainIndex": 84212 } },
+    { "roundId": "…", "crashPoint": 100, "link": null },   // a forced round (§9) claims no link
+    …
+  ]
 }
 ```
+
+`history[].link` says where each past round sits in its chain, so the history strip can hand a round
+straight to the verification page, which asks `GET /fair/:chainId/:chainIndex` for its reveal
+(§3.3). It carries the coordinates and not the seed: the reveal has one public home per round, and
+the strip does not need a second copy of it (D16).
 
 `houseEdgeBps` is a true basis-point figure — `100` is 1% — and it is the one field on the wire that
 is. It parameterises the crash-point function (§3.2); it is sent so the verification page can
@@ -561,3 +570,10 @@ is the liveness check, and three missed intervals at 30 s would leave a dead soc
 minute and a half — through whole rounds. Rejected: a separate heartbeat message (two timers doing
 one job) and relying on the socket's close event (a half-open connection never fires it).
 
+**D16 — How does a past round reach the verifier?** `hello.history` carries each round's `link` —
+`{ chainId, chainIndex }`, `null` for a forced one — and the verifier fetches the reveal from
+`GET /fair/…`. Rejected: `roundId` alone (the fairness endpoints are keyed by chain position, and a
+second index by `roundId` would be a lookup table for one screen); the full reveal in every entry
+(thirty seeds repeated in every `hello`, and a second place a reveal could disagree with the first).
+`crash.fair` already carries the link for the round that just ended, so the client builds the entry
+itself; a checkpoint written before C3 loads its history with `link: null`.

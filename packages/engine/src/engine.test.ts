@@ -461,6 +461,19 @@ describe('settlement at the crash', () => {
     }
     expect(table.state.history.map((h) => h.crashPoint)).toEqual(points.slice(0, 30));
   });
+
+  it('records where each round sits in the chain — and no link for a forced one (D16)', () => {
+    const table = new Table();
+    table.open();
+    table.runToCrash();
+    table.openForced(250);
+    table.runToCrash();
+    const [forced, drawn] = table.state.history;
+    expect(forced?.link).toBeNull();
+    expect(drawn?.link).toEqual({ chainId: 1, chainIndex: 1 });
+    // Only the coordinates: the seed is in `crash.fair` and `GET /fair/…`, not repeated per entry.
+    expect(Object.keys(drawn?.link ?? {})).toEqual(['chainId', 'chainIndex']);
+  });
 });
 
 describe('a retry that straddles the round boundary gets its original answer (§7)', () => {

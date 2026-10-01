@@ -24,7 +24,7 @@ function state(round: GameView['round'], status: ClientState['status'] = 'live')
       chain: { id: 1, commit: 'c'.repeat(64), salt: 's', length: 10 },
       round,
       myBets: [],
-      history: [{ roundId: 'R0', crashPoint: 318 }],
+      history: [{ roundId: 'R0', crashPoint: 318, link: null }],
       withdrawn: [],
     },
   };

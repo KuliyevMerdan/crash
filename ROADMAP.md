@@ -25,7 +25,9 @@ strategy at 99% within 1σ, and the auto cash-out rule fixed on the way (D14). *
 virtual time. **C1 landed 2026-09-30** — the curve, the counter and the crash on Canvas 2D in a
 Vite + React shell, measured through a 100× round and a 5-second stall. **C2 landed 2026-09-30** —
 the bet panel and a cash-out that prices the press before it is made, played 30 rounds on a 300 ms
-link. **C3 is next.**
+link. **C3 landed 2026-10-01** — the live player list, the history strip, and a verification page
+that recomputes a round in the browser and walks it to the published commit, catching three kinds of
+lying server on the way. **P0 is next.**
 
 ---
 
@@ -41,7 +43,7 @@ link. **C3 is next.**
 | **C0** | `client-core` — socket, clock sync, reconnect, typed events | S1, S3 | ✅ (landed 2026-09-30) |
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ✅ (landed 2026-09-30) |
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ✅ (landed 2026-09-30) |
-| **C3** | Player list, round history, the verification page | C1, S3 | ☐ |
+| **C3** | Player list, round history, the verification page | C1, S3 | ✅ (landed 2026-10-01) |
 | **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ☐ |
 | **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ☐ |
 
@@ -281,16 +283,31 @@ cash-out that was reached paid its target exactly, no press arrived late, no bet
 
 _2 days._
 
-- [ ] Live player list: nick, stake, and the multiplier each one got, filling in as they cash out.
-      **Never `autoCashOutAt`** ([`docs/protocol.md`](docs/protocol.md) §11, D4).
-- [ ] Round history strip — the last ~30 crash points, colour-graded, clickable.
-- [ ] **The verification page.** Paste a round, see the seed, the chain link, the HMAC and the
-      recomputed crash point — running `packages/fair` **in the browser**, the same code the server
-      used. Walk the chain back to the published commit.
-- [ ] The 18+/play-money notice, and a short "how this works" panel linking the ADRs.
+- [x] Live player list: nick, stake, and the multiplier each one got, filling in as they cash out —
+      your own bet on top, then by stake, a cash-out filling its row in place (`tableModel`, pure).
+      **Never `autoCashOutAt`** ([`docs/protocol.md`](docs/protocol.md) §11, D4) — a test holds the
+      row to the fields the wire makes public.
+- [x] Round history strip — the last 30 crash points, colour-graded (below 2× · to 10× · beyond),
+      each a link to the verification page; a forced dev round is drawn dashed and links nowhere.
+      **Diverged:** `hello.history` carried only `roundId` and `crashPoint`, and the fairness
+      endpoints are keyed by chain position — each entry now carries its `link`
+      (`{ chainId, chainIndex } | null`, D16).
+- [x] **The verification page** (`#/verify/:chainId/:chainIndex`). Paste a round — `84213`,
+      `1:84213` or a link — and see the seed, the link to the round before, the HMAC with the 52 bits
+      it reads, the recomputed crash point, and the walk back to the published commit, all running
+      `packages/fair` **in the browser**. `fair` grew `crashPointTrace` (the working, from the one
+      implementation) and `hashTimes` (the walk in slices, so a million hashes never freeze a frame).
+      The page also holds the round to what *this browser* knows: the crash point it was shown, and the
+      commit, salt and edge it was handed in `hello` before it bet.
+- [x] The 18+/play-money notice on both screens (the game's since C1), and a "how this works" panel
+      linking the ADRs — on the game's side column and the verifier.
 
 **Done when:** a stranger can pick a round they just lost, verify it in the browser, and see for
-themselves that the result predated their bet.
+themselves that the result predated their bet. **Met 2026-10-01** (`pnpm verify:web`): a fresh
+Chromium context bets through the real panel, loses, follows the banner's link and gets every step
+verified — against the commit its own `hello` carried; the same page, fed a wrong crash point, a
+forged seed, the previous round's seed and a swapped commit, says *does not verify* each time; and the
+far end of a million-link chain verifies in ≈1.3 s with no frame gap over 18 ms.
 
 ---
 

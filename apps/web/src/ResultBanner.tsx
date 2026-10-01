@@ -8,13 +8,18 @@ const x = (h: number) => `${(h / 100).toFixed(2)}×`;
  * A manual cash-out also shows what the screen said at the press and what the button promised, so
  * the gap between them is explained right where the player looks for it.
  */
-export function ResultBanner({ result }: { result: Result | null }) {
+export function ResultBanner({ result, verify }: { result: Result | null; verify: string | null }) {
   if (result === null) return null;
   if (result.kind === 'busted') {
     return (
       <div className="result lost" role="status">
         <strong>BUSTED</strong>
         <span>crashed at {x(result.crashPoint)}</span>
+        {verify && (
+          <a className="verify-link" href={verify}>
+            check this round was fixed before you bet →
+          </a>
+        )}
       </div>
     );
   }

@@ -50,8 +50,12 @@ export const SERVER_FIXTURES = {
     },
     myBets: [{ roundId: ROUND, betId: BET, amount: 500, status: 'OPEN', autoCashOutAt: 200 }],
     history: [
-      { roundId: '01J8ZQ3X0000000000000000AA', crashPoint: 247 },
-      { roundId: '01J8ZQ3W0000000000000000AB', crashPoint: 100 },
+      {
+        roundId: '01J8ZQ3X0000000000000000AA',
+        crashPoint: 247,
+        link: { chainId: 1, chainIndex: 84212 },
+      },
+      { roundId: '01J8ZQ3W0000000000000000AB', crashPoint: 100, link: null },
     ],
   },
   pong: { type: 'pong', clientTime: 1755399999000, serverTime: 1755400000000 },

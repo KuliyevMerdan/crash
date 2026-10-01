@@ -29,9 +29,21 @@ export function verifyLink(seed: string, previousHash: string): boolean {
 export function verifyToCommit(seed: string, chainIndex: number, commit: string): boolean {
   if (!isHash(seed) || !isHash(commit)) return false;
   if (!Number.isSafeInteger(chainIndex) || chainIndex < 1) return false;
+  return hashTimes(seed, chainIndex) === commit;
+}
+
+/**
+ * `SHA256` applied `times` times over the raw bytes, as hex — one stretch of the walk back to the
+ * commit. `hashTimes(hashTimes(s, a), b) = hashTimes(s, a + b)`, so a page can take a million
+ * hashes in slices, yield to the browser between them, and still be running this loop.
+ */
+export function hashTimes(seed: string, times: number): string {
+  if (!Number.isSafeInteger(times) || times < 0) {
+    throw new RangeError(`times must be a non-negative integer: ${times}`);
+  }
   let current = toSeedBytes(seed);
-  for (let i = 0; i < chainIndex; i += 1) current = sha256(current);
-  return bytesToHex(current) === commit;
+  for (let i = 0; i < times; i += 1) current = sha256(current);
+  return bytesToHex(current);
 }
 
 export interface Chain {

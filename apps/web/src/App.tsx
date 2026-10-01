@@ -4,9 +4,15 @@ import type { Drawn } from '@crash/renderer';
 import { useEffect, useState } from 'react';
 import { BetPanel } from './BetPanel.js';
 import { CurveCanvas } from './CurveCanvas.js';
+import { HistoryStrip } from './HistoryStrip.js';
+import { HowItWorks } from './HowItWorks.js';
+import { PlayerTable } from './PlayerTable.js';
 import { ResultBanner } from './ResultBanner.js';
+import { verifyHref } from './route.js';
 import { useBetting, type Report } from './useBetting.js';
 import { useClientState, useDesync } from './useClient.js';
+import { useRoute } from './useRoute.js';
+import { VerifyPage } from './VerifyPage.js';
 
 const STATUS_TEXT = {
   connecting: 'connecting…',
@@ -16,15 +22,26 @@ const STATUS_TEXT = {
   closed: 'offline',
 } as const;
 
-export function App({
-  client,
-  onDrawn,
-  onReport,
-}: {
+interface Props {
   client: CrashClient;
   onDrawn?: (drawn: Drawn) => void;
   onReport?: (report: Report) => void;
-}) {
+}
+
+/**
+ * The two screens, picked by the URL hash. The client — and its socket — outlives both: leaving the
+ * table to verify a round and coming back is a re-render, not a reconnect.
+ */
+export function Root(props: Props) {
+  const route = useRoute();
+  if (route.page === 'verify') {
+    const key = route.link ? `${route.link.chainId}:${route.link.chainIndex}` : 'none';
+    return <VerifyPage key={key} client={props.client} link={route.link} />;
+  }
+  return <App {...props} />;
+}
+
+export function App({ client, onDrawn, onReport }: Props) {
   const state = useClientState(client);
   const betting = useBetting(client, onReport);
   const desynced = useDesync(client);
@@ -46,11 +63,21 @@ export function App({
           </span>
         )}
       </header>
+      <HistoryStrip history={game?.history ?? []} />
       <section className="stage">
         <CurveCanvas client={client} {...(onDrawn ? { onDrawn } : {})} />
-        <ResultBanner result={betting.result} />
+        <ResultBanner
+          result={betting.result}
+          verify={
+            game?.round.phase === 'CRASHED' && game.round.fair ? verifyHref(game.round.fair) : null
+          }
+        />
       </section>
-      <BetPanel client={client} betting={betting} />
+      <aside className="side">
+        <BetPanel client={client} betting={betting} />
+        {game && <PlayerTable game={game} />}
+        <HowItWorks />
+      </aside>
       <p className="sr-only" aria-live="polite">
         {announcement}
       </p>

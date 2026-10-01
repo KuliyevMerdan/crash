@@ -68,7 +68,15 @@ const snapshot = z.object({
   players: z.array(z.object({ id: z.string(), nick: z.string(), balance: money })),
   round: round.nullable(),
   previous: round.nullable(),
-  history: z.array(z.object({ roundId: z.string(), crashPoint: z.int() })),
+  // `link` arrived in C3 (D16). A checkpoint written before it loads with `null` — those rounds
+  // stay verifiable through `GET /fair/…`; the strip just cannot point at them.
+  history: z.array(
+    z.object({
+      roundId: z.string(),
+      crashPoint: z.int(),
+      link: z.object({ chainId: z.int(), chainIndex: z.int() }).nullable().default(null),
+    }),
+  ),
   granted: money,
   house: money,
   now: z.int(),

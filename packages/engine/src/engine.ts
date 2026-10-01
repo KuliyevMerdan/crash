@@ -180,7 +180,11 @@ function crash(s: EngineState, out: Effect[]): EngineState {
     }),
   );
 
-  const entry: HistoryEntry = { roundId: round.roundId, crashPoint: round.crashPoint };
+  const entry: HistoryEntry = {
+    roundId: round.roundId,
+    crashPoint: round.crashPoint,
+    link: round.link && { chainId: round.link.chainId, chainIndex: round.link.chainIndex },
+  };
   return {
     ...s,
     round: crashed,

@@ -86,7 +86,18 @@ export const chainInfo = z.object({
   length: z.int().min(2),
 });
 
-export const historyEntry = z.object({ roundId: ulid, crashPoint: multiplier });
+/** Where a round sits in its chain — enough to ask `GET /fair/:chainId/:chainIndex` for its reveal. */
+export const roundLink = z.object({ chainId, chainIndex });
+
+/**
+ * A past round in `hello.history` (§2.2): its crash point, and the link the verification page looks
+ * up — `null` for a forced dev round, which claims none (D13, D16).
+ */
+export const historyEntry = z.object({
+  roundId: ulid,
+  crashPoint: multiplier,
+  link: roundLink.nullable(),
+});
 
 export type FairReveal = z.infer<typeof fairReveal>;
 export type PublicBet = z.infer<typeof publicBet>;
@@ -95,3 +106,4 @@ export type RoundSnapshot = z.infer<typeof roundSnapshot>;
 export type GameConfig = z.infer<typeof gameConfig>;
 export type ChainInfo = z.infer<typeof chainInfo>;
 export type HistoryEntry = z.infer<typeof historyEntry>;
+export type RoundLink = z.infer<typeof roundLink>;

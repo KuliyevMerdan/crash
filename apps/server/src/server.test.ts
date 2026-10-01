@@ -92,6 +92,15 @@ describe('two players in one round (ROADMAP S3 "Done when")', () => {
     const next = await ada.next('bettingOpen');
     expect(next.chainIndex).toBe(fair.chainIndex + 1);
 
+    // A latecomer's history points at that reveal by its place in the chain (D16) — the strip's link.
+    const cy = await connect(server);
+    const helloC = await cy.login('cy');
+    expect(helloC.history[0]).toEqual({
+      roundId,
+      crashPoint: crashA.crashPoint,
+      link: { chainId: chain.id, chainIndex: fair.chainIndex },
+    });
+
     // …and nothing the server logged before the crash carried the seed; s₀ was never logged at all.
     const crashLine = server.lines.findIndex((l) => l.includes('"msg":"round crashed"'));
     expect(server.lines.slice(0, crashLine).join('\n')).not.toContain(fair.seed);
@@ -201,6 +210,13 @@ describe('the dev surface (docs/protocol.md §9)', () => {
     const consumed = server.server.chains.info();
     expect(after.chainIndex).not.toBeNull();
     expect(consumed.id).toBe(1);
+    const bo = await connect(server);
+    const history = (await bo.login('bo')).history;
+    expect(history.find((h) => h.roundId === forced.roundId)).toEqual({
+      roundId: forced.roundId,
+      crashPoint: 250,
+      link: null, // nothing for the strip to send to the verifier (D13)
+    });
   });
 
   it('faults break only the sender’s own connection', async () => {

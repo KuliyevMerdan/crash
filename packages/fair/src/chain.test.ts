@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { chainRounds, createChain, previousHashOf, verifyLink, verifyToCommit } from './index.js';
+import {
+  chainRounds,
+  createChain,
+  hashTimes,
+  previousHashOf,
+  verifyLink,
+  verifyToCommit,
+} from './index.js';
 
 const S0 = '00'.repeat(32);
 
@@ -59,6 +66,15 @@ describe('verification', () => {
     expect(verifyLink('not hex', chain.commit)).toBe(false);
     expect(verifyToCommit(chain.seedAt(1), 0, chain.commit)).toBe(false);
     expect(verifyToCommit(chain.seedAt(1), 1, 'SHA256:' + chain.commit)).toBe(false);
+  });
+
+  it('hashTimes walks in slices to the same place as in one go', () => {
+    const seed = chain.seedAt(150);
+    expect(hashTimes(seed, 0)).toBe(seed);
+    expect(hashTimes(seed, 1)).toBe(chain.seedAt(149));
+    expect(hashTimes(hashTimes(hashTimes(seed, 37), 100), 13)).toBe(chain.commit);
+    expect(() => hashTimes(seed, -1)).toThrow(RangeError);
+    expect(() => hashTimes('not hex', 1)).toThrow(RangeError);
   });
 
   it('previousHashOf is one step down the chain', () => {

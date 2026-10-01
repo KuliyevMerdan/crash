@@ -99,6 +99,7 @@ describe('reduce', () => {
     const past = Array.from({ length: HISTORY_LENGTH }, (_, i) => ({
       roundId: `R${i}`,
       crashPoint: 100 + i,
+      link: null,
     }));
     let view = viewFromHello(hello(betting(1), { history: past }));
     ({ view } = run(view, {
@@ -127,7 +128,25 @@ describe('reduce', () => {
     });
     expect(view.myBets[0]?.status).toBe('LOST');
     expect(view.history).toHaveLength(HISTORY_LENGTH);
-    expect(view.history[0]).toEqual({ roundId: ROUND, crashPoint: 247 });
+    expect(view.history[0]).toEqual({ roundId: ROUND, crashPoint: 247, link: null });
+  });
+
+  it('keeps where a revealed round sits in its chain, so the strip can send it to the verifier', () => {
+    let view = running(viewFromHello(hello(betting(1))));
+    const fair = { chainId: 2, chainIndex: 41, seed: 'a'.repeat(64), previousHash: 'b'.repeat(64) };
+    ({ view } = run(view, {
+      type: 'crash',
+      roundId: ROUND,
+      crashPoint: 318,
+      crashedAt: 99,
+      fair,
+      settled: [],
+    }));
+    expect(view.history[0]).toEqual({
+      roundId: ROUND,
+      crashPoint: 318,
+      link: { chainId: 2, chainIndex: 41 },
+    });
   });
 
   it.each([

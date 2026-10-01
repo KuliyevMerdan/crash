@@ -2,7 +2,7 @@ import type { Drawn } from '@crash/renderer';
 import type { Report } from './useBetting.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
+import { Root } from './App.js';
 import { createClient } from './client.js';
 import './styles.css';
 
@@ -35,7 +35,7 @@ const root = document.getElementById('root');
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <App
+      <Root
         client={client}
         {...(__DEV_HOOKS__
           ? {

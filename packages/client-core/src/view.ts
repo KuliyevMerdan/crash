@@ -237,7 +237,14 @@ export function reduce(
               : b,
           ),
           history: [
-            { roundId: round.roundId, crashPoint: message.crashPoint },
+            {
+              roundId: round.roundId,
+              crashPoint: message.crashPoint,
+              link: message.fair && {
+                chainId: message.fair.chainId,
+                chainIndex: message.fair.chainIndex,
+              },
+            },
             ...view.history,
           ].slice(0, HISTORY_LENGTH),
         },

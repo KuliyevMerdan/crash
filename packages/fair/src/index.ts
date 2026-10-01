@@ -5,13 +5,21 @@
  * run this same code (ADR-0001). No Node API, no DOM API, no dependency — enforced by the boundary
  * rules and the base tsconfig, and exercised under both environments by `isomorphic.test.ts`.
  */
-export { MIN_CRASH_POINT, MAX_CRASH_POINT, crashPoint, crashPointFromBits } from './crash-point.js';
+export {
+  type CrashPointTrace,
+  MIN_CRASH_POINT,
+  MAX_CRASH_POINT,
+  crashPoint,
+  crashPointFromBits,
+  crashPointTrace,
+} from './crash-point.js';
 export {
   type Chain,
   type ChainOptions,
   type ChainRound,
   chainRounds,
   createChain,
+  hashTimes,
   previousHashOf,
   verifyLink,
   verifyToCommit,

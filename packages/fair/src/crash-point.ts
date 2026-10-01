@@ -26,9 +26,28 @@ const TWO_POW_52 = 2n ** 52n;
  * that decides money.
  */
 export function crashPoint(seed: string, salt: string, houseEdgeBps: number): number {
+  return crashPointTrace(seed, salt, houseEdgeBps).crashPoint;
+}
+
+/** Every intermediate value of `crashPoint`, for a page that shows its working. */
+export interface CrashPointTrace {
+  /** `HMAC_SHA256(bytes(seed), utf8(salt))`, as hex. */
+  readonly hmac: string;
+  /** The first 52 bits of `hmac` — its first 13 hex digits. */
+  readonly r: bigint;
+  readonly crashPoint: number;
+}
+
+/**
+ * `crashPoint`, with its working shown. The verification page displays the HMAC and the 52 bits it
+ * reads; taking them from here rather than recomputing them is what keeps the page from showing one
+ * derivation while the server ran another.
+ */
+export function crashPointTrace(seed: string, salt: string, houseEdgeBps: number): CrashPointTrace {
   if (!isHash(seed)) throw new RangeError('a seed is 64 lowercase hex characters');
-  const h = bytesToHex(hmacSha256(hexToBytes(seed), utf8(salt)));
-  return crashPointFromBits(BigInt(`0x${h.slice(0, 13)}`), houseEdgeBps);
+  const hmac = bytesToHex(hmacSha256(hexToBytes(seed), utf8(salt)));
+  const r = BigInt(`0x${hmac.slice(0, 13)}`);
+  return { hmac, r, crashPoint: crashPointFromBits(r, houseEdgeBps) };
 }
 
 /**

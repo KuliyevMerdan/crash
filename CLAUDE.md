@@ -5,8 +5,8 @@ repository.
 
 ## Project status
 
-> ⚠️ **The game is playable; the table and the verifier are not on screen yet.** **S0–S4 and C0–C2 landed
-> 2026-09-30.** S0: the workspace,
+> ⚠️ **The game is playable and every round verifiable; it has not been hardened or deployed yet.**
+> **S0–S4 and C0–C2 landed 2026-09-30, C3 2026-10-01.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
 > zod schema, the curve and its exact inverse, the crash point pinned against an independent
@@ -21,7 +21,10 @@ repository.
 > Vite + React shell, measured on a throttled phone profile through a 100× round and a 5-second stall.
 > C2: the bet panel, the cash-out that prices a press half a round trip ahead, auto cash-out and the
 > result moment — played 30 rounds on a 300 ms link with every manual cash-out paid what the button said.
-> ADR-0001 and ADR-0002 are accepted. **C3 — players, history, the verification page — is next.**
+> C3: the live player list, the history strip, and the verification page — a stranger's lost round
+> recomputed in the browser and walked back to the commit their own `hello` carried, with three kinds
+> of lying server caught on the way.
+> ADR-0001 and ADR-0002 are accepted. **P0 — hardening under load, loss and hostile clocks — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -83,21 +86,20 @@ There is no catch-up, no replay, no reconciliation.
 
 ### Packages
 
-All ten exist since **S0**, with the dependency rules applied from the first line; the four **S1**
-packages are implemented, the other six are still shells whose `src/index.ts` names the block that
-fills them.
+All ten exist since **S0**, with the dependency rules applied from the first line, and all ten are
+implemented — the last, `apps/web`, completed by **C3**.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
 | `packages/protocol` | zod schemas + inferred types for every message in [`docs/protocol.md`](docs/protocol.md), `parseClientMessage` / `parseServerMessage` with invariant 9 built in (unknown fields stripped, unknown types dropped, a bad known type `malformed`); the error taxonomy with the class a function of the code | ✅ S1 |
 | `packages/money` | branded `Minor` (the only way in is `minor()`, a safe integer or a throw), exact `add`/`sub`, `payout = floor(stake × m / 100)` refusing any inexact product, `formatMinor` for display | ✅ S1 |
 | `packages/curve` | `multiplierAt` (`m`), `elapsedAt` (its exact inverse in integer ms, walked to the boundary), `smoothMultiplierAt` for drawing only, `MAX_MULTIPLIER`. Pure, tiny, load-bearing | ✅ S1 |
-| `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt`, `createChain` with checkpoints, `verifyLink`, `verifyToCommit`. **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 |
+| `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt` and `crashPointTrace` (the same, with its HMAC and 52 bits shown), `createChain` with checkpoints, `verifyLink`, `verifyToCommit`, `hashTimes` (the walk to the commit, in slices). **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 · C3 |
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
 | `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync`, reconnect with jittered backoff, ping liveness, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`. **No DOM** — socket, clock and timers are injected | ✅ C0 |
 | `packages/renderer` | `CrashRenderer` — draws a `Frame` (idle · waiting · running · crashed: plain numbers) on a narrow `Ctx` slice of Canvas 2D; `extents` (the axes as pure functions of time), ticks, `formatMultiplier`. **No React, no protocol** | ✅ C1 |
 | `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
-| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `scripts/perf.mjs` and `scripts/play.mjs` | ✅ C1–C2 · C3 to come |
+| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `tableModel` and `gradeOf` (pure), `PlayerTable`, `HistoryStrip`, `HowItWorks`; the hash router (`route.ts`) and the verifier — `verifyRound` and `knownFrom` (DOM-free), `VerifyPage`; `scripts/perf.mjs`, `scripts/play.mjs`, `scripts/verify.mjs` | ✅ C1–C3 |
 | `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
 
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
@@ -336,6 +338,45 @@ Prettier had already reformatted silently did not apply, and the first measureme
 cash-outs. The gate caught it because it fails when it has too few samples to judge, rather than
 passing on none.
 
+### The verifier takes nothing on trust
+
+**C3** puts the table and its proof on screen. The game screen gains the history strip above the
+curve and a side column — the bet panel, the live player list, a "how this works" panel linking the
+ADRs. The verifier is a second screen in the same app, `#/verify/:chainId/:chainIndex`: a hash route,
+so a link to a round works pasted anywhere and served by any static host; the client and its socket
+outlive the switch, so leaving the table to check a round is a re-render, not a reconnect.
+
+- **The player list shows what the wire makes public, and nothing it does not** (`tableModel`,
+  pure): nick, stake, and the multiplier each player got with what it paid — derivable from two
+  public numbers, so not a balance. A bet riding on auto looks like any other (D4); a test holds the
+  rows to their fields. Your own bet sits on top, the rest by stake, and a cash-out fills its row in
+  place rather than reordering the list under the reader's eye.
+- **Every past crash point is a link.** `hello.history` carries each round's place in the chain
+  (D16), and the client builds the newest entry from `crash.fair` itself. A forced round has no
+  link and is drawn dashed. The bust banner links straight to the round just lost.
+- **The server is asked for the claim, and the browser checks it** (`verifyRound`, DOM-free). It
+  fetches `GET /fair/chains` and the round's reveal, parses both with the protocol schemas, then
+  recomputes everything with `@crash/fair` — the code the server drew the result with: the seed
+  hashes to the previous one; `crashPointTrace` gives the HMAC, the 52 bits and the crash point,
+  which must equal the recorded one; and `hashTimes` walks the seed back to the commit,
+  `chainIndex` hashes in slices of 10,000 with a macrotask break between them, so the far end of a
+  million-link chain never costs a frame. 20,000 a slice was the first guess; it measured ≈25 ms in
+  headless Chromium and dropped a frame every slice.
+- **What the browser knew before is the part that makes the result predate the bet** (`knownFrom`):
+  the commit, salt and house edge it was handed in `hello` when it joined, and the crash point it
+  was shown for the round — at the crash, or in `hello.history`. Both are read afresh on every render, not captured when the check
+  starts — a page opened cold from a link is still joining while it walks, and the first version,
+  which captured them, left step 5 unchecked on exactly that page (found by the gate).
+- **A server that lies gets a red step, not a footnote.** A crash point the seed does not produce,
+  a forged seed, a previous seed passed off as this round's, a commit, salt or edge changed after
+  the browser joined, a reply that does not parse — each fails its step and the verdict says *does
+  not verify*. An unrevealed round is refused by the server (404) and the page says why.
+
+**What C3 found:** the canvas carried `touch-action: none`, harmless while the game fitted one phone
+screen; with the player list below the fold, a swipe that began on the curve could not scroll the
+page. It is `pan-y` now. And `verifyRound` first captured the browser's own knowledge at the start
+of a check — the gate, opening a verification link cold, saw step 5 left blank.
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -348,9 +389,11 @@ passing on none.
 | Client ↔ server | `tests/client-server.test.ts`: `packages/client-core` against `createGameServer` in one virtual clock over an in-process network — **20 connections cut across 100 rounds**, the cuts taking turns at BETTING, RUNNING and CRASHED, the client held to the server's phase, table, bets, balance and multiplier after every reconnect and at every step; and 40 ms up / 120 ms down, the offset at exactly −40 and the drawn multiplier exactly `m(now + offset − startedAt)`. Checked non-vacuous by breaking the reducer and watching it fail. Plus the client's own suite on a scripted server: asymmetric latency, an hour of clock skew, timeouts, `SYSTEM` retries, backoff, half-open liveness, session reset, drift | ✅ C0 |
 | Renderer + web | `renderer`: axes continuous frame to frame and always holding the head, ticks on step multiples with the step's own precision, the counter's formatting, drawing through a recording context that throws on any non-finite number · `apps/web`: `frameOf` for every phase, a stale view, the verifiable and forced notes | ✅ C1 |
 | Panel | `apps/web`: stake and multiplier parsing (digit by digit, refusing a third decimal) · every panel mode and every disabled state with its reason | ✅ C2 |
+| Verifier | `apps/web`: `verifyRound` against a scripted server — an honest round walked in slices, round 1, the browser's own knowledge (the crash point it was shown; commit, salt and edge from `hello`; another chain or none is unknown, not failed), a wrong crash point, a forged seed, a self-consistent round from another chain, a seed claimed at the wrong index, every refusal with its message, an abort mid-walk · `tableModel`, `gradeOf`, the hash route and what a stranger pastes · `fair`: `crashPointTrace` is `crashPoint` with its working, `hashTimes` in slices equals one walk | ✅ C3 |
 | Play (C2 gate) | `pnpm play:web` — 30 rounds in real Chromium on a 300 ms link, the bot typing and clicking the real panel (below) | ✅ C2 |
+| Verify (C3 gate) | `pnpm verify:web` — a stranger loses a round and verifies it; four lying servers; a million-link walk (below) | ✅ C3 |
 | Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · real devices in P0 |
-| Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
+| Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit, and a latecomer's `history` pointing at it (D16), a forced round's at nothing · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 
 What `pnpm perf:web` measured (2026-09-30):
@@ -390,6 +433,30 @@ What `pnpm play:web` measured (2026-09-30):
 
 On localhost the injected latency is exact, so "0 hundredths off the promise" is the best case; real
 jitter moves the landing by the curve's rise over the jitter, which is **P0**'s to measure.
+
+What `pnpm verify:web` measured (2026-10-01):
+
+**C3 verify** · a stranger's lost round, verified in headless Chromium (390×844, mobile)
+
+| Measure | Result |
+| --- | --- |
+| The stranger's bet | LOST at 1.49× |
+| Round 2 from the banner: verdict / steps 2–5 | verified / ok ok ok ok |
+| … click to verdict | 359 ms |
+| The newest round from the history strip | verified |
+| A server that sends a crash point the seed does not produce | does not verify (step 3) |
+| A server that sends a forged seed | does not verify (steps 2–4) |
+| A server that passes off the previous round's seed as this one | does not verify (steps 2–4) |
+| A server that swapped the commit after the browser joined | does not verify |
+| A round not yet revealed | refused by the server (404), no seed |
+| Chain index 999,999 of a 1,000,000-link chain | verified |
+| … the walk in the page | 999,999 hashes in 1347 ms |
+| … longest gap between frames during the walk | 16.7 ms over 100 frames |
+| Page errors, whole run | 0 |
+
+The layout change re-ran the earlier gates the same day: C1 held 0 frames over 25 ms (max
+13.0 ms); C2 paid every manual cash-out exactly its promise, once on a run that then failed for
+having 7 samples rather than 8 — the next run had 8.
 
 The statistical layer is the one that would be missing from a weaker version of this project, and
 it is the one that proves the house edge is where ADR-0001 says it is. What it measured
@@ -452,7 +519,8 @@ read in `apps/server/src/config.ts` — `CRASH_DB`, `CRASH_GROWTH_RATE`, `CRASH_
 sim **and everything it depends on** (Turborepo) before running it — S4 first ran it against a
 stale engine `dist/` and measured the bug it had already fixed. `pnpm dev` runs the server and the
 web app together (Vite on :5173, proxying `/ws` and `/fair` to :8080; `CRASH_SERVER` moves the
-target). `pnpm perf:web` builds everything, then measures the C1 gate in real Chromium (below).
+target). `pnpm perf:web` builds everything, then measures the C1 gate in real Chromium (below);
+`pnpm play:web` the C2 gate and `pnpm verify:web` the C3 gate, the same way.
 
 **Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
 compiler refuses one that does not. Found in S1: under `Bundler` resolution `tsc` emitted
@@ -499,6 +567,23 @@ writing:
   client never sends one and the server decides whether to listen; the dev *hooks* and
   `__ASSERT_CURVE__` are stripped (checked by grepping the production bundle). **P1** can split
   `@crash/protocol/dev` if the bytes ever matter.
+- **The browser remembers one session's chain.** Step 5 of the verifier compares against the
+  commit, salt and edge from *this* page's `hello`; reload after a chain rotation and the old chain's
+  commit is gone from the browser, so a returning player cannot hold the server to last week's
+  commit unless they saved it. Persisting every commit a browser has been handed (`localStorage`,
+  keyed by chain) would close it — a **P1** call, with the deploy.
+- **A verification link opened cold joins the table.** The verifier lives in the game's app, so a
+  stranger following a link gets a socket and a play-money wallet they never asked for — which is
+  also what lets step 5 compare against a `hello`. Harmless at demo scale; **P1** decides whether a
+  wallet should wait for a first bet.
+- **The million-hash walk is headless desktop Chromium's ≈1.3 s.** A mid-range phone is perhaps
+  3–5× slower — still without a frozen frame, by construction, but **P0** measures it on the real
+  device along with the betting window.
+- **The play gate's sample size is luck.** `pnpm play:web` refuses to judge on fewer than 8
+  manual cash-outs, and how many it gets depends on a chain drawn fresh each run (C3's re-run got 7,
+  then 8). Pinning `CRASH_DEV_CHAIN_SEED` in `scripts/play.mjs` would fix the crash points but not
+  which rounds the bot lands in; **P0**, which re-runs it under jitter anyway, should make it
+  play until it has its samples rather than for a fixed 30 rounds.
 - **The line ends where the client last drew it, then snaps to the crash.** The crash arrives a
   one-way latency after it happened, so the curve has been drawn that far past the crash point and
   the break pulls it back — ~60 ms of curve at typical latency, invisible below ~50×. A crash during
