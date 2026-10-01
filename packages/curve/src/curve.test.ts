@@ -36,12 +36,16 @@ describe('multiplierAt', () => {
   });
 
   it('never decreases, millisecond by millisecond, across the whole range', () => {
+    // One assertion over the walk, not 93,000: an expect per millisecond cost seconds on a busy CI
+    // runner and timed the test out (P0's commit) — for a check that is one comparison each.
+    const decreases: number[] = [];
     let previous = multiplierAt(K, 0);
     for (let ms = 1; ms <= 93_000; ms += 1) {
       const current = multiplierAt(K, ms);
-      expect(current).toBeGreaterThanOrEqual(previous);
+      if (current < previous) decreases.push(ms);
       previous = current;
     }
+    expect(decreases).toEqual([]);
   });
 
   it('floors fractional time the same way it floors integer time', () => {
@@ -69,11 +73,12 @@ describe('elapsedAt — the exact inverse', () => {
   });
 
   it('lands on the boundary for every step from 1.00× to 100.00×', () => {
+    const missed: number[] = [];
     for (let x = MIN_MULTIPLIER; x <= 10_000; x += 1) {
       const ms = elapsedAt(K, x);
-      expect(multiplierAt(K, ms)).toBeGreaterThanOrEqual(x);
-      if (ms > 0) expect(multiplierAt(K, ms - 1)).toBeLessThan(x);
+      if (multiplierAt(K, ms) < x || (ms > 0 && multiplierAt(K, ms - 1) >= x)) missed.push(x);
     }
+    expect(missed).toEqual([]);
   });
 
   it('lands on the boundary for random multipliers up to the ceiling, on several curves', () => {

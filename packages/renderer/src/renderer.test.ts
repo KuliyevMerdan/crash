@@ -67,12 +67,17 @@ function setup() {
 describe('the axes (the "past ~20×" gap)', () => {
   it('move smoothly: no frame of a 90-second round shifts either extent by more than 2%', () => {
     let previous = extents(0, 1);
+    let worst = 0;
     for (let ms = 16; ms <= 92_000; ms += 16) {
       const next = extents(ms / 1000, multiplierAt(K, ms) / 100);
-      expect(Math.abs(next.xMaxS - previous.xMaxS) / previous.xMaxS).toBeLessThan(0.02);
-      expect(Math.abs(next.yMax - previous.yMax) / previous.yMax).toBeLessThan(0.02);
+      worst = Math.max(
+        worst,
+        Math.abs(next.xMaxS - previous.xMaxS) / previous.xMaxS,
+        Math.abs(next.yMax - previous.yMax) / previous.yMax,
+      );
       previous = next;
     }
+    expect(worst).toBeLessThan(0.02);
   });
 
   it('always keep the head of the curve inside the chart, with headroom', () => {
