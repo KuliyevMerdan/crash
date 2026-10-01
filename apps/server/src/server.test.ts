@@ -5,6 +5,7 @@ import { curve, elapsedAt } from '@crash/curve';
 import { crashPoint as crashPointOf, verifyToCommit } from '@crash/fair';
 import { chainListing, revealedRound } from '@crash/protocol';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import {
   betId,
   Client,
@@ -187,7 +188,7 @@ describe('the dev surface (docs/protocol.md §9)', () => {
     const ada = await connect(server);
     await ada.login('ada');
     ada.send({ type: 'devForceCrashPoint', crashPoint: 5000 });
-    ada.send({ type: 'devFaults', latencyMs: 0, dropRate: 1 }); // faults are off too
+    ada.send({ type: 'devFaults', latencyMs: 0, lossRate: 0.5 }); // faults are off too
     const opened = await ada.next('bettingOpen');
     expect(opened.chainIndex).not.toBeNull();
     const crash = await ada.next('crash', (m) => m.roundId === opened.roundId);
@@ -225,7 +226,7 @@ describe('the dev surface (docs/protocol.md §9)', () => {
     const fine = await connect(server);
     await Promise.all([slow.login('slow'), fine.login('fine')]);
 
-    slow.send({ type: 'devFaults', latencyMs: 300, dropRate: 0 });
+    slow.send({ type: 'devFaults', latencyMs: 300, lossRate: 0 });
     await sleep(50);
     const sent = Date.now();
     slow.send({ type: 'ping', clientTime: sent });
@@ -236,10 +237,18 @@ describe('the dev surface (docs/protocol.md §9)', () => {
     expect(delayed.serverTime - sent).toBeGreaterThanOrEqual(290); // stamped after the uplink delay
     expect(fast.serverTime - sent).toBeLessThan(200);
 
-    slow.send({ type: 'devFaults', latencyMs: 0, dropRate: 1 });
+    // A stall freezes the link both ways and then delivers, in order — nothing is lost (D17).
+    slow.send({ type: 'devFaults', latencyMs: 0, lossRate: 0 });
     await sleep(400); // let the latency-delayed faults change land
-    slow.send({ type: 'ping', clientTime: Date.now() });
-    await expect(slow.next('pong', () => true, 500)).rejects.toThrow(/no pong/);
+    slow.send({ type: 'devStall', ms: 700 });
+    await sleep(50);
+    const frozenAt = Date.now();
+    slow.send({ type: 'ping', clientTime: frozenAt });
+    await expect(slow.next('pong', (m) => m.clientTime === frozenAt, 400)).rejects.toThrow(
+      /no pong/,
+    );
+    const thawed = await slow.next('pong', (m) => m.clientTime === frozenAt, 1500);
+    expect(thawed.serverTime - frozenAt).toBeGreaterThanOrEqual(600); // stamped when it arrived
 
     const closed = new Promise<number>((resolve) => slow.socket.once('close', resolve));
     slow.send({ type: 'devDisconnect' });
@@ -312,6 +321,28 @@ describe('the wire, at the edges', () => {
     expect(await ada.next('error')).toMatchObject({ code: 'DUPLICATE_BET_ID', betId: reused });
   }, 20_000);
 
+  it('terminates a socket that stops answering heartbeats — a half-open peer — and keeps the rest', async () => {
+    const server = await run(testConfig({ CRASH_HEARTBEAT_MS: '150' }));
+    const live = await connect(server);
+    await live.login('live');
+    // A peer whose network vanished: the socket is open, but nothing answers the server's pings.
+    const ghost = new WebSocket(server.ws, { autoPong: false });
+    await new Promise((resolve) => ghost.once('open', resolve));
+    ghost.send(JSON.stringify({ type: 'authenticate', token: null, nick: 'ghost' }));
+    await sleep(100);
+    expect(server.server.hub.count).toBe(2);
+    const closedAt = new Promise<number>((resolve) =>
+      ghost.once('close', () => resolve(Date.now())),
+    );
+    const since = Date.now();
+    expect((await closedAt) - since).toBeLessThan(600); // two intervals and change
+    for (let i = 0; i < 50 && server.server.hub.count > 1; i += 1) await sleep(10); // server's side of the close
+    expect(server.server.hub.count).toBe(1);
+    expect(server.lines.some((l) => l.includes('missed a heartbeat'))).toBe(true);
+    live.send({ type: 'ping', clientTime: Date.now() });
+    await live.next('pong');
+  });
+
   it('answers the probes, and never serves a seed that has not been revealed', async () => {
     const server = await run(testConfig({ CRASH_DEV_CHAIN_SEED: DEV_SEED }));
     expect(await getJson(`${server.url}/health`)).toEqual({ ok: true });
@@ -320,5 +351,27 @@ describe('the wire, at the edges', () => {
     expect((await fetch(`${server.url}/fair/one/1`)).status).toBe(400);
     const listing = chainListing.parse(await getJson(`${server.url}/fair/chains`));
     expect(JSON.stringify(listing)).not.toContain(DEV_SEED);
+  });
+
+  it('gives a development server — only — an audit of itself, with nothing secret in it', async () => {
+    const dev = await run(testConfig({ CRASH_DEV_CHAIN_SEED: DEV_SEED }));
+    const ada = await connect(dev);
+    const hello = await ada.login('ada');
+    const audit = (await getJson(`${dev.url}/dev/audit`)) as {
+      money: { granted: number; accounted: number };
+      round: { roundId: string };
+      players: Array<{ id: string; balance: number }>;
+    };
+    expect(audit.money.accounted).toBe(audit.money.granted);
+    expect(audit.round.roundId).toBe(hello.round.roundId);
+    expect(audit.players).toEqual([{ id: hello.player.id, balance: 100_000, myBets: [] }]);
+    // The round in flight is open: its seed exists on the server and must appear nowhere here.
+    const seed = dev.server.game.snapshot.round?.link?.seed ?? '';
+    expect(seed).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(audit)).not.toContain(seed);
+
+    const prodConfig = testConfig({ CRASH_ENV: 'production', CRASH_DB: dbFile() });
+    const prod = await run(prodConfig, sqliteStore(prodConfig.database));
+    expect((await fetch(`${prod.url}/dev/audit`)).status).toBe(404);
   });
 });

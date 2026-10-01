@@ -1,0 +1,37 @@
+{
+  "name": "@crash/load",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@crash/client-core": "workspace:*",
+    "@crash/curve": "workspace:*",
+    "@crash/money": "workspace:*",
+    "@crash/protocol": "workspace:*",
+    "ws": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

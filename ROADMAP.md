@@ -27,7 +27,9 @@ Vite + React shell, measured through a 100× round and a 5-second stall. **C2 la
 the bet panel and a cash-out that prices the press before it is made, played 30 rounds on a 300 ms
 link. **C3 landed 2026-10-01** — the live player list, the history strip, and a verification page
 that recomputes a round in the browser and walks it to the published commit, catching three kinds of
-lying server on the way. **P0 is next.**
+lying server on the way. **P0 landed 2026-10-01** — a crowd of 500 real clients with broken networks
+and hour-off clocks, for 30 minutes, with no money made or lost and nobody in a wrong state; three
+bugs found on the way. **P1 is next.**
 
 ---
 
@@ -44,7 +46,7 @@ lying server on the way. **P0 is next.**
 | **C1** | The curve on screen — Canvas 2D, 60 fps, drift correction | C0 | ✅ (landed 2026-09-30) |
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ✅ (landed 2026-09-30) |
 | **C3** | Player list, round history, the verification page | C1, S3 | ✅ (landed 2026-10-01) |
-| **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ☐ |
+| **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ✅ (landed 2026-10-01) |
 | **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ☐ |
 
 **Legend:** ☐ not started · ◐ in progress · ✅ landed (add the date, as `✅ (landed 2026-09-04)`).
@@ -317,20 +319,32 @@ far end of a million-link chain verifies in ≈1.3 s with no frame gap over 18 m
 
 _2 days._
 
-- [ ] Load test: 500 concurrent sockets in one round. Measure broadcast fan-out latency and assert
-      **`receivedAt` accuracy does not degrade under load** — the ADR-0002 promise, tested.
-- [ ] Packet loss and stalls: 20% drop, 3-second freezes, half-open connections. The client must
-      recover without a visible jump and without a wrong balance.
-- [ ] **Clock drift and hostile clocks**: a client with a clock an hour off must play correctly, and
-      must not be able to affect a payout by lying about time.
-- [ ] Reconnect storm — 200 clients reconnecting at once mid-round.
-- [ ] Measure whether `bettingPhaseMs = 7000` is enough for a 300 ms client
-      ([`CLAUDE.md`](CLAUDE.md) § Gaps) and set the real value.
-- [ ] Debug panel exposing the server's fault injection, so a reviewer can break the network on the
-      live demo and watch it recover.
+- [x] Load test: 500 concurrent sockets in one round (`pnpm load`, `tools/load`): fan-out latency
+      and **the `receivedAt` stamp, quiet against loaded** — the ADR-0002 promise, measured over real
+      sockets against a server process on SQLite. A broadcast is serialised once now, not per socket.
+- [x] Packet loss and stalls: 20% loss, 3-second freezes, half-open connections — in virtual time in
+      CI (`tests/soak.test.ts`) and in real time. **Diverged:** "20% drop" is 20% *loss* (D17) — TCP
+      resends, so a frame is late and in order, never missing; S3's `dropRate` simulated a fault
+      WebSockets do not have. Half-open is closed from both ends: a server heartbeat, and a client
+      deadline on `hello` (it could wait for one forever). **Found:** the fault lane itself let frames
+      overtake each other on late timers, and the clock offset ran 400 ms behind at 20% loss (D18).
+- [x] **Clock drift and hostile clocks**: a tenth of every crowd an hour off, both ways, held to the
+      server like the rest; a client sending pings from the epoch and from the end of time is paid
+      exactly what an honest one pressing at the same moment is (`tests/hostile-clock.test.ts`).
+- [x] Reconnect storm — 40% of the crowd (200 of 500) dropped by the server at once, mid-round, every
+      five minutes in the load run and every 2½ in the soak.
+- [x] `bettingPhaseMs = 7000` measured and kept: a 300 ms client's `bettingOpen` lands with 6.84 s
+      left, a lossy one's with 6.95 s (p50). The panel now stops offering a bet or a cancel that
+      would arrive after the close (`lastCallAt` — `rtt/2` plus 150 ms), with the reason.
+- [x] Debug panel — the network lab on the game's side column: latency, loss, a 3 s freeze, a dropped
+      connection, on the reviewer's own socket only, re-applied after every reconnect.
 
 **Done when:** a 500-client 30-minute soak with injected faults ends with zero money created or
-destroyed and zero clients in a wrong state.
+destroyed and zero clients in a wrong state. **Met 2026-10-01** (`pnpm load --
+--clients 500 --minutes 30`, real sockets, a server process on SQLite): 60 money audits with no
+breach, and at the end all 500 players live and agreeing with `/dev/audit` on round, history, wallet
+and bets — after 39,531 bets, 1,371 reconnects and six storms that each had 200 players back within
+0.9 s. The same crowd runs in CI in virtual time (200 players, 10 minutes, ≈6 s).
 
 ## Block P1 — Packaging
 

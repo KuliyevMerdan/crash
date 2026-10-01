@@ -442,9 +442,10 @@ c→s  { "type": "ping", "clientTime": 1755399999000 }
 s→c  { "type": "pong", "clientTime": 1755399999000, "serverTime": 1755400000000 }
 ```
 
-`offset = serverTime − (sent + received) / 2`, `rtt = received − sent`. The client keeps the
-**median of the last 5** samples — a burst of five pings 200 ms apart right after `hello`, so the
-estimate is good before the first frame is drawn, then one ping every 5 s — and uses:
+`offset = serverTime − (sent + received) / 2`, `rtt = received − sent`. The client keeps the last
+**5** samples — a burst of five pings 200 ms apart right after `hello`, so the estimate is good
+before the first frame is drawn, then one ping every 5 s — takes the **offset of the fastest** of
+them and the **median rtt** (D18), and uses:
 
 - `offset` to place `startedAt` on its own timeline, so the curve is drawn correctly;
 - `rtt` to tell the player what their manual press will actually land on
@@ -455,22 +456,21 @@ liveness check: no `pong` for 3 intervals (15 s) and the client drops the socket
 whether or not the socket ever reported closing, because a half-open connection never does.
 
 What no sampling can remove is **asymmetry**: with uplink `u` and downlink `d`, every sample — and
-so the median — is off by `(u − d)/2`. The client draws the curve exactly from `now + offset`, so
+so any estimate built from them — is off by `(u − d)/2`. The client draws the curve exactly from `now + offset`, so
 that error is the whole of its drift; `packages/client-core` has a test at 40 ms up / 120 ms down
 holding the estimate to −40 ms and the drawn multiplier to `m(now + offset − startedAt)` exactly.
 
 ## 9. Environment & dev flags
 
-- `__ASSERT_CURVE__` (dev builds) — compare each `tick.multiplier` against the locally computed one
-  and throw on a mismatch over one step (0.01×). Catches curve drift the moment it appears.
-Three **dev messages**, c→s, outside the §2 table because a production client never sends them.
+Four **dev messages**, c→s, outside the §2 table because a production client never sends them.
 The server decides whether it listens; a server that does not treats them as unknown types —
 dropped and logged, never answered (§1, invariant 9) — so their existence is not advertised.
 
 | Type | Payload | Accepted when |
 | --- | --- | --- |
 | `devForceCrashPoint` | `{ crashPoint }` — hundredths, `100 … 100000000` | **development only** (`CRASH_ENV=development`) |
-| `devFaults` | `{ latencyMs, dropRate }` — `0 … 10000` ms, `0 … 1` | fault injection enabled (`CRASH_FAULTS=on`) |
+| `devFaults` | `{ latencyMs, lossRate }` — `0 … 10000` ms, `0 … 0.9` | fault injection enabled (`CRASH_FAULTS=on`) |
+| `devStall` | `{ ms }` — `1 … 30000` | fault injection enabled |
 | `devDisconnect` | `{}` | fault injection enabled |
 
 - **`devForceCrashPoint`** makes the **next round opened** a *forced round*: its crash point is the
@@ -480,12 +480,22 @@ dropped and logged, never answered (§1, invariant 9) — so their existence is 
   make a round deterministic. A production server drops the message, and a test holds it to that
   with a hand-crafted frame — the stripped client cannot send one, so nothing else would catch a
   regression.
-- **`devFaults`** and **`devDisconnect`** break **the sender's own connection only**: outbound
-  messages are delayed by `latencyMs` and each dropped with probability `dropRate`; inbound frames
-  are delayed by `latencyMs` *before* they are stamped (the frame has not "arrived" yet, so the
-  delay is honest network, not server load — ADR-0002); `devDisconnect` terminates the socket as
-  a dead network would. Because they touch nobody else, they can stay on for the live demo, where a
-  reviewer breaks their own network from the debug panel and watches the client recover.
+- **`devFaults`**, **`devStall`** and **`devDisconnect`** break **the sender's own connection
+  only**, the way a real network breaks a WebSocket (D17). Each direction of the link is a lane
+  that never loses a frame and never reorders one: every frame is delayed by `latencyMs`, and with
+  probability `lossRate` its packet is lost and resent after TCP's retransmission timeout — 200 ms,
+  doubling for each further loss — while every frame behind it waits (head-of-line blocking).
+  `devStall` freezes both lanes for `ms`, then delivers what they held, in order. Inbound frames
+  are stamped when they leave the lane — they had not "arrived" before (ADR-0002) — so the delay is
+  honest network, not server load. `devDisconnect` terminates the socket as a dead network would:
+  the one fault that does lose what was in flight, and the one TCP cannot hide. Because they touch
+  nobody else, they can stay on for the live demo, where a reviewer breaks their own network from
+  the debug panel and watches the client recover.
+- **`GET /dev/audit`** — development servers only; a production server does not have the route.
+  The server's own account of itself, for a load test to hold its crowd to: the money law
+  (`granted`, `accounted`, `house`), the public round snapshot and history, and every wallet with
+  its bets in the current round. Nothing secret: the round is the snapshot every client gets, which
+  never carries an unrevealed seed (tested with the open round's seed in hand).
 - `__ASSERT_CURVE__` (dev builds) — compare each `tick.multiplier` against the locally computed one
   and throw on a mismatch over one step (0.01×). Catches curve drift the moment it appears.
 
@@ -577,3 +587,23 @@ second index by `roundId` would be a lookup table for one screen); the full reve
 (thirty seeds repeated in every `hello`, and a second place a reveal could disagree with the first).
 `crash.fair` already carries the link for the round that just ended, so the client builds the entry
 itself; a checkpoint written before C3 loads its history with `link: null`.
+
+**D17 — What does "packet loss" do to a WebSocket?** It delays, it never drops. TCP resends a lost
+segment after its retransmission timeout and holds everything behind it until it lands, so a
+WebSocket frame is late and in order — or the connection dies, and every frame in flight with it.
+S3's `devFaults.dropRate` discarded single frames mid-connection: a fault no WebSocket produces,
+which would have had P0 hardening the client against a network that does not exist (sequence
+numbers to detect gaps the transport already rules out). It is `lossRate` now — resent after
+200 ms, doubling — plus `devStall` for a frozen link; a lost connection stays `devDisconnect`.
+Rejected: keeping `dropRate` for the debug panel (a reviewer would watch the client fail at
+something the real network never asks of it) and per-message sequence numbers (a defence against
+the injector, not the network).
+
+**D18 — The clock offset: the median sample, or the fastest?** The fastest. A sample whose ping or
+pong waited behind a resend is off by half the wait, and on a lossy link that is most samples: P0's
+load run measured a client at 20% loss whose median-of-five offset left it up to 400 ms behind the
+server — its countdown long, its curve late. The exchange with the smallest round trip waited least
+and is wrong by at most half its own rtt; at 20% loss one of five is clean 99% of the time. The rtt
+stays a median, because it prices a press (ADR-0002) and should be the typical trip, not the
+luckiest. Rejected: a longer window (slower to follow a real change of route) and a mean (worse
+than the median under exactly these outliers).

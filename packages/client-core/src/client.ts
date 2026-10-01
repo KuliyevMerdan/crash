@@ -4,6 +4,7 @@ import {
   decodeFrame,
   parseServerMessage,
   type ClientMessage,
+  type DevMessage,
   type ErrorMessage,
   type ServerMessage,
   type ServerMessageOf,
@@ -120,6 +121,8 @@ export class CrashClient {
   private attempts = 0;
   private lastPongAt = 0;
   private pinger: Timer | null = null;
+  /** From the open to the `hello` — the stretch the pings do not cover yet. */
+  private helloDeadline: Timer | null = null;
   private reconnectTimer: Timer | null = null;
   private curve: Curve | null = null;
   private stopped = true;
@@ -145,6 +148,7 @@ export class CrashClient {
     this.stopped = true;
     this.generation += 1;
     this.pinger?.cancel();
+    this.helloDeadline?.cancel();
     this.reconnectTimer?.cancel();
     this.connection?.close();
     this.connection = null;
@@ -207,6 +211,17 @@ export class CrashClient {
     return this.request('cashOut', betId, { type: 'cashOut', betId }, 'cashOutResult');
   }
 
+  /**
+   * A dev message (docs/protocol.md §9) down this client's own socket — the debug panel's faults,
+   * a load test's. A server that does not listen drops it as an unknown type; nothing is promised,
+   * so nothing is awaited. `false` if there is no open socket to send it on.
+   */
+  sendDev(message: DevMessage): boolean {
+    if (this.connection === null || this.state.status === 'connecting') return false;
+    this.connection.send(JSON.stringify(message));
+    return true;
+  }
+
   // ── Connection lifecycle ──────────────────────────────────────────────────────────────────────
 
   private connect(): void {
@@ -218,6 +233,12 @@ export class CrashClient {
         if (!live()) return;
         this.setStatus('authenticating');
         this.authenticate();
+        // Liveness is the ping, and pings start at hello: a link that goes dark between the open
+        // and the hello needs its own deadline, the same three intervals, or "joining" is forever.
+        this.helloDeadline?.cancel();
+        this.helloDeadline = this.options.scheduler.setTimeout(() => {
+          if (live() && this.state.status === 'authenticating') this.dropConnection();
+        }, 3 * this.pingIntervalMs);
       },
       message: (frame) => {
         if (live()) this.onFrame(frame);
@@ -232,6 +253,7 @@ export class CrashClient {
     if (this.stopped) return;
     this.generation += 1; // anything the old socket still says is ignored
     this.pinger?.cancel();
+    this.helloDeadline?.cancel();
     this.connection = null;
     for (const intent of this.intents.values()) intent.timer?.cancel(); // re-sent after the next hello
     this.setStatus('reconnecting');
@@ -306,6 +328,7 @@ export class CrashClient {
       this.token = hello.token;
       this.options.onToken?.(hello.token);
     }
+    this.helloDeadline?.cancel();
     this.curve = makeCurve(hello.config.curve.growthRatePerSecond);
     this.attempts = 0;
     this.lastPongAt = this.options.clock.now();

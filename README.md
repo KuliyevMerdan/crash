@@ -4,8 +4,9 @@ A **real-time multiplayer crash game** — one round, every player in it at once
 climbs until it busts. Node + TypeScript on the server, Canvas 2D in the browser, WebSocket between
 them.
 
-> ⚠️ **Status (2026-10-01): playable and verifiable — bet, watch, cash out, then check the round
-> yourself.** **S0–S4 and C0–C3** have landed: the workspace and its enforced boundaries, the wire
+> ⚠️ **Status (2026-10-01): playable, verifiable and hardened — bet, watch, cash out, check the
+> round yourself, then break your own network and watch it recover.** **S0–S4, C0–C3 and P0** have
+> landed: the workspace and its enforced boundaries, the wire
 > contract as schemas, the curve, money and the provably-fair chain, the pure round engine, the
 > server (a shared round over WebSocket, SQLite persistence that survives a restart mid-round,
 > `GET /fair/*`), a million-round simulation in which every flat strategy returns 99%, and the client
@@ -14,8 +15,11 @@ them.
 > through a 100× round, and a bet panel whose cash-out tells you what your press will get before you
 > make it. C3 put the table on screen: the live player list, the last 30 crash points, and a
 > verification page that recomputes any round in the browser and walks it back to the published
-> commit — and catches a server that lies about it. See [`ROADMAP.md`](ROADMAP.md) — **P0**
-> (hardening under load and faults) is next. `pnpm dev` and open <http://localhost:5173>.
+> commit — and catches a server that lies about it. P0 set 500 real clients on it for 30 minutes
+> with slow, lossy, frozen and vanishing links, clocks an hour off and reconnect storms, and ended
+> with no money made or lost and every player in step with the server; the network lab lets anyone
+> do the same to their own connection. See [`ROADMAP.md`](ROADMAP.md) — **P1** (the deploy, the E2E
+> suite, this README) is next. `pnpm dev` and open <http://localhost:5173>.
 
 ## What makes it interesting to build
 

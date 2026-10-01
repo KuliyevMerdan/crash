@@ -655,3 +655,60 @@ code {
     gap: 2px;
   }
 }
+
+/* ── P0: the network lab ── */
+.lab {
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.lab summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.lab-why,
+.lab-small {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.lab-small {
+  font-size: 11px;
+}
+.lab-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lab-row > span {
+  width: 56px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.lab-row button {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid rgba(226, 232, 240, 0.15);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font: 600 12px/1 inherit;
+  cursor: pointer;
+}
+.lab-row button[aria-pressed='true'] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.lab-status {
+  margin: 10px 0 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.lab-log {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}

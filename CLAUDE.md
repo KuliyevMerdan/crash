@@ -5,8 +5,8 @@ repository.
 
 ## Project status
 
-> ⚠️ **The game is playable and every round verifiable; it has not been hardened or deployed yet.**
-> **S0–S4 and C0–C2 landed 2026-09-30, C3 2026-10-01.** S0: the workspace,
+> ⚠️ **The game is playable, every round verifiable, and hardened against a real crowd's network;
+> it has not been deployed yet.** **S0–S4 and C0–C2 landed 2026-09-30, C3 and P0 2026-10-01.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
 > zod schema, the curve and its exact inverse, the crash point pinned against an independent
@@ -23,8 +23,12 @@ repository.
 > result moment — played 30 rounds on a 300 ms link with every manual cash-out paid what the button said.
 > C3: the live player list, the history strip, and the verification page — a stranger's lost round
 > recomputed in the browser and walked back to the commit their own `hello` carried, with three kinds
-> of lying server caught on the way.
-> ADR-0001 and ADR-0002 are accepted. **P0 — hardening under load, loss and hostile clocks — is next.**
+> of lying server caught on the way. P0: a crowd of real clients — slow, lossy, frozen, dark,
+> an hour off, stormed — against the server for 30 minutes, in virtual time in CI and over real
+> sockets by hand, ending with no money made or lost and nobody in a wrong state; it found and fixed
+> a clock estimate 400 ms off under loss (D18), a client that could wait for a `hello` forever, and
+> half-open sockets left in the broadcast.
+> ADR-0001 and ADR-0002 are accepted. **P1 — the deploy, the E2E suite, the README — is next.**
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -96,11 +100,12 @@ implemented — the last, `apps/web`, completed by **C3**.
 | `packages/curve` | `multiplierAt` (`m`), `elapsedAt` (its exact inverse in integer ms, walked to the boundary), `smoothMultiplierAt` for drawing only, `MAX_MULTIPLIER`. Pure, tiny, load-bearing | ✅ S1 |
 | `packages/fair` | SHA-256 and HMAC in plain TypeScript (NIST- and RFC 4231-vectored), `crashPoint` in `BigInt` and `crashPointTrace` (the same, with its HMAC and 52 bits shown), `createChain` with checkpoints, `verifyLink`, `verifyToCommit`, `hashTimes` (the walk to the commit, in slices). **Isomorphic** — no Node, no DOM, no dependency | ✅ S1 · C3 |
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
-| `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync`, reconnect with jittered backoff, ping liveness, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`. **No DOM** — socket, clock and timers are injected | ✅ C0 |
+| `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync` (offset of the fastest of five samples, median rtt — D18), reconnect with jittered backoff, ping liveness and a deadline on `hello`, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`, `sendDev`. **No DOM** — socket, clock and timers are injected | ✅ C0 · P0 |
 | `packages/renderer` | `CrashRenderer` — draws a `Frame` (idle · waiting · running · crashed: plain numbers) on a narrow `Ctx` slice of Canvas 2D; `extents` (the axes as pure functions of time), ticks, `formatMultiplier`. **No React, no protocol** | ✅ C1 |
-| `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `sockets` (frames in, effects out, `receivedAt` first), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes and `/fair/*`, the boot contract | ✅ S3 |
+| `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `hub` (frames in, effects out, `receivedAt` first; a broadcast serialised once) with a `Lane` per direction per connection for the dev faults, `sockets` (the `ws` adapter and its heartbeat), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes, `/fair/*` and the development-only `/dev/audit`, the boot contract | ✅ S3 · P0 |
 | `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `tableModel` and `gradeOf` (pure), `PlayerTable`, `HistoryStrip`, `HowItWorks`; the hash router (`route.ts`) and the verifier — `verifyRound` and `knownFrom` (DOM-free), `VerifyPage`; `scripts/perf.mjs`, `scripts/play.mjs`, `scripts/verify.mjs` | ✅ C1–C3 |
 | `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
+| `tools/load` | `Population` — a crowd of real `CrashClient`s on links of their own, with habits (bet, cancel, auto or a press at a target) and the fault schedule (stall, blackhole, storm), held to a `Truth` with `compare`; `pnpm load` runs it over `ws` against a server process and reads the truth from `/dev/audit` | ✅ P0 |
 
 **Canvas 2D, not Pixi** — deliberately. The slot project already demonstrates Pixi; a second WebGL
 renderer adds nothing to read, and this game is one curve, one counter and a burst. Raw Canvas 2D is
@@ -127,6 +132,7 @@ renderer ──▶ curve
 apps/server ──▶ engine, protocol, money, curve, fair
 apps/web ──▶ client-core, renderer, protocol, money, fair
 tools/sim ──▶ fair, curve, engine, money, protocol
+tools/load ──▶ client-core, protocol, money, curve
 ```
 
 Hard rules on top of the graph:
@@ -232,13 +238,13 @@ How the server (**S3**) is shaped around it:
   commit refuses to load. The next chain is published with `rotateAt` rounds left; its ≈0.7 s of
   hashing runs in the pause after a crash, when nothing is in flight to be stamped late.
 - **`receivedAt` is the first line of the frame handler**, before decoding or parsing. A simulated
-  slow uplink (`devFaults`) delays the *arrival*, so it is stamped after the delay — network, not
-  load.
+  slow or lossy uplink (`devFaults`, `devStall`) delays the *arrival*, so it is stamped after the
+  delay — network, not load.
 - **`betId`s are single-use for good**: the store keeps every accepted one, and a reuse the engine's
   one-round memory would miss is refused before the event reaches it.
 - **The boot contract** (`config.ts`): a production server refuses `:memory:`, a missing database
   and a dev chain seed, naming every violation at once. `devForceCrashPoint` is heard only in
-  development; `devFaults`/`devDisconnect` only with `CRASH_FAULTS=on` (default in development,
+  development; `devFaults`/`devStall`/`devDisconnect` only with `CRASH_FAULTS=on` (default in development,
   opt-in in production for the live demo, since they touch only the sender's own socket). A server
   that does not listen drops them as unknown types — tested with hand-crafted frames.
 - **Logs are one pino line per thing that happened, keyed by `roundId`**, and never carry a seed
@@ -377,6 +383,56 @@ screen; with the player list below the fold, a swipe that began on the curve cou
 page. It is `pan-y` now. And `verifyRound` first captured the browser's own knowledge at the start
 of a check — the gate, opening a verification link cold, saw step 5 left blank.
 
+### Hardening: what a real crowd does to it
+
+**P0** turned the server and the client loose on a crowd and broke the crowd's networks on purpose,
+the way real ones break — then held every player to the server's account of it.
+
+- **Loss is late, never lost** (D17). Each direction of each connection runs through a `Lane`
+  (`apps/server/src/link.ts`): a fixed latency, and with probability `lossRate` a frame's packet is
+  resent after TCP's retransmission timeout (200 ms, doubling) while every frame behind it waits.
+  `devStall` freezes both lanes, `devDisconnect` kills the socket. S3's `dropRate` discarded frames
+  mid-connection — a fault no WebSocket produces — and is gone. **Order is the lane's queue, not
+  its timers**: the first version armed a timer per frame, and the load run caught real Node timers
+  firing late enough for a tick to overtake its round's crash — 114 resyncs in two minutes, and one
+  player whose cash-out landed after the next round had opened, its balance silently lost until the
+  next `hello`. Virtual time never fires late, so only real time could find it.
+- **The clock offset is the fastest sample's, the rtt the median** (D18). Under 20% loss a
+  median-of-five offset put a client up to 400 ms behind the server — its countdown long, its curve
+  late. The lowest-rtt exchange waited least and is wrong by at most half its own trip.
+- **A socket that dies silently is noticed from both ends.** The server pings every socket at the
+  protocol level every 10 s (`CRASH_HEARTBEAT_MS`) and terminates one that missed the previous ping —
+  the half-open gap is closed. The client already dropped a socket after three missed pongs, but
+  pings start at `hello`: a link that went dark between the open and the `hello` left it "joining"
+  forever. It has a deadline of the same three intervals now.
+- **A broadcast is serialised once**, not once per socket.
+- **The betting window is measured, and kept at 7 s.** A 300 ms client's `bettingOpen` lands with
+  6.84 s left; a lossy one's with 6.95 s (p50). What was missing was the panel saying so: a bet or
+  a cancel sent later than `bettingClosesAt − rtt/2 − 150 ms` (`lastCallAt`) would arrive after the
+  close, so from that moment the button is disabled with the reason and the ping — the betting
+  window's counterpart of the cash-out's landing price.
+- **A lying clock moves nothing.** `ping.clientTime` is the only time a client sends; a client that
+  sends the epoch and the end of time and then presses is paid exactly what an honest one pressing
+  at the same server moment is (`tests/hostile-clock.test.ts`). An hour-off clock plays correctly —
+  a tenth of every crowd below runs one.
+- **The network lab** (`apps/web`, `NetworkLab`) puts the faults on the live demo, on the
+  reviewer's own socket only: latency, loss, a 3-second freeze, a dropped connection — re-applied
+  after every reconnect, with a log of what the client did about it.
+
+The crowd is `tools/load`'s `Population`, and it runs twice:
+
+- **In CI, in virtual time** (`tests/soak.test.ts`): 200 players for 10 minutes against
+  `createGameServer` — a fifth on a 300 ms link, a fifth on a lossy one, a tenth an hour off; every
+  20 s 3% of links frozen for 3 s, every 45 s 1% gone dark, every 2½ minutes 40% of the crowd dropped
+  mid-round. The money law is audited every virtual second; at the end every player must be live
+  and agree with the engine on the round, the history, its wallet and its bets. ≈6 s. `SOAK_PLAYERS`
+  and `SOAK_MINUTES` run it larger (500 × 30 minutes passes in 3½ minutes). Checked non-vacuous by
+  breaking the reducer's cash-out balance and watching it name the players it left wrong. The
+  virtual clock is a binary heap now — a linear scan per timer made a crowd quadratic.
+- **By hand, in real time** (`pnpm load -- --clients 500 --minutes 30`): the same crowd over real
+  sockets against a server process on SQLite, with a reconnect storm every five minutes, held at
+  the end to `GET /dev/audit` (below).
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -390,10 +446,12 @@ of a check — the gate, opening a verification link cold, saw step 5 left blank
 | Renderer + web | `renderer`: axes continuous frame to frame and always holding the head, ticks on step multiples with the step's own precision, the counter's formatting, drawing through a recording context that throws on any non-finite number · `apps/web`: `frameOf` for every phase, a stale view, the verifiable and forced notes | ✅ C1 |
 | Panel | `apps/web`: stake and multiplier parsing (digit by digit, refusing a third decimal) · every panel mode and every disabled state with its reason | ✅ C2 |
 | Verifier | `apps/web`: `verifyRound` against a scripted server — an honest round walked in slices, round 1, the browser's own knowledge (the crash point it was shown; commit, salt and edge from `hello`; another chain or none is unknown, not failed), a wrong crash point, a forged seed, a self-consistent round from another chain, a seed claimed at the wrong index, every refusal with its message, an abort mid-walk · `tableModel`, `gradeOf`, the hash route and what a stranger pastes · `fair`: `crashPointTrace` is `crashPoint` with its working, `hashTimes` in slices equals one walk | ✅ C3 |
-| Play (C2 gate) | `pnpm play:web` — 30 rounds in real Chromium on a 300 ms link, the bot typing and clicking the real panel (below) | ✅ C2 |
+| Play (C2 gate) | `pnpm play:web` — at least 30 rounds (on until 8 manual cash-outs, at most 60) in real Chromium on a 300 ms link, the bot typing and clicking the real panel (below) | ✅ C2 |
 | Verify (C3 gate) | `pnpm verify:web` — a stranger loses a round and verifies it; four lying servers; a million-link walk (below) | ✅ C3 |
-| Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · real devices in P0 |
-| Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit, and a latecomer's `history` pointing at it (D16), a forced round's at nothing · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book and the boot contract | ✅ S3 · load and chaos in P0 |
+| Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · a real device is P1's |
+| Soak | `tests/soak.test.ts` — 200 players, 10 virtual minutes of stalls, dark links, storms, slow, lossy and hour-off clients against the real server; money audited every second, every player held to the engine at the end · `tests/hostile-clock.test.ts` — a client lying about its clock paid exactly what an honest one is | ✅ P0 |
+| Load (P0 gate) | `pnpm load` — 500 players, 30 minutes, real sockets, a server process on SQLite, the soak's faults and a storm every 5 minutes, held to `/dev/audit` (below) | ✅ P0 |
+| Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit, and a latecomer's `history` pointing at it (D16), a forced round's at nothing · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only, a stall delivering late and in order · a half-open socket terminated by the heartbeat · `/dev/audit` in development only, with nothing secret · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book, the boot contract and the fault lane (in order under loss, a stall, a late timer) | ✅ S3 · P0 |
 | E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
 
 What `pnpm perf:web` measured (2026-09-30):
@@ -458,6 +516,42 @@ The layout change re-ran the earlier gates the same day: C1 held 0 frames over 2
 13.0 ms); C2 paid every manual cash-out exactly its promise, once on a run that then failed for
 having 7 samples rather than 8 — the next run had 8.
 
+What `pnpm load -- --clients 500 --minutes 30` measured (2026-10-01):
+
+**P0 load** · 500 players · 30 min · real sockets, a server process on SQLite · one machine
+
+| Measure | Result |
+| --- | --- |
+| Money: granted = accounted, audited every 30 s | 60 audits, 0 breaches |
+| Players in a wrong state at the end | **0 of 500** |
+| Bets accepted / manual cash-outs / auto cash-outs / cancels | 39,531 / 5,333 / 6,469 / 3,113 |
+| Reconnects / resyncs, whole crowd | 1,371 / 0 |
+| `receivedAt` stamp, clean link (p50 / p99 / max): quiet server | 1 / 2 / 2 ms |
+| … under 500 players | 0 / 4 / 65 ms (n = 105,456) |
+| … during a reconnect storm | 0 / 3 / 8 ms |
+| Tick fan-out, clean link: quiet server | 1 / 3 / 3 ms |
+| … under 500 players | 3 / 9 / 29 ms (n = 136,202) |
+| … during a reconnect storm | 2 / 8 / 12 ms |
+| Reconnect storms (200 of 500 dropped mid-round, six of them): all back live in | 0.6, 0.6, 0.9, 0.6, 0.6, 0.6 s |
+| Betting window left when `bettingOpen` lands — clean / far / lossy (p50) | 6.99 / 6.84 / 6.95 s |
+| Bets refused `BETTING_CLOSED` — clean / far / lossy | 4 of 23,231 / 4 of 8,267 / 49 of 8,074 |
+| Manual presses `TOO_LATE` — clean / far / lossy | 13 / 42 / 126 |
+
+The stamp is the ADR-0002 promise under load: the loaded p99 is 2 ms above the quiet one (the gate
+allows 10). Its 65 ms maximum is one sample in a hundred thousand — a collection pause or an fsync,
+on a machine the clients share — and at 10× a 65 ms-late stamp is worth about ten hundredths.
+The bots bet at a random moment in the first two-thirds of the window and do not heed the panel's
+last call, so the lossy refusals are resends that outran it — the case `lastCallAt` exists for.
+The earlier gates were re-run on P0's code the same day. `perf:web` now stalls the phone with
+`devStall`, which releases the five seconds it held in one burst, as a stalled TCP connection
+does — and the frame that takes it in is the run's one frame over 25 ms (36 ms of 3,681; the gate
+holds). C1's latency trick had spread the backlog out, which is why it measured none. `play:web`
+paid all 8 manual cash-outs exactly their promise over 32 rounds; `verify:web` was unchanged.
+
+The lossy window's worst case (8.0 s, p99 7.1 s) is a client a few seconds after a reconnect:
+its five-ping burst sat behind one resent frame together, so even the fastest of the five was
+late; the 5-second pings that follow are independent and the offset settles.
+
 The statistical layer is the one that would be missing from a weaker version of this project, and
 it is the one that proves the house edge is where ADR-0001 says it is. What it measured
 (`pnpm sim -- --rounds 1000000`, 2026-09-30, the demo's config):
@@ -520,7 +614,9 @@ sim **and everything it depends on** (Turborepo) before running it — S4 first 
 stale engine `dist/` and measured the bug it had already fixed. `pnpm dev` runs the server and the
 web app together (Vite on :5173, proxying `/ws` and `/fair` to :8080; `CRASH_SERVER` moves the
 target). `pnpm perf:web` builds everything, then measures the C1 gate in real Chromium (below);
-`pnpm play:web` the C2 gate and `pnpm verify:web` the C3 gate, the same way.
+`pnpm play:web` the C2 gate and `pnpm verify:web` the C3 gate, the same way. `pnpm load -- --clients
+500 --minutes 30` builds the server and `tools/load`, starts a development server process on a
+temporary SQLite file and runs the P0 gate against it (below).
 
 **Module resolution is `NodeNext`**, so a relative import carries its `.js` extension and the
 compiler refuses one that does not. Found in S1: under `Bundler` resolution `tsc` emitted
@@ -537,11 +633,6 @@ AI agent, and this file is where the repository's guidance lives.
 Log what you hit here as you hit it ([Rule 1](#rule-1--log-the-gaps-you-hit)). Open at time of
 writing:
 
-- **Betting-phase length under real latency.** 7 s is a placeholder. **P0** measures whether a
-  300 ms client can reliably place a bet in it.
-- **Half-open sockets.** The server never pings; a client that vanished without a close frame
-  stays in the broadcast set until TCP gives up. Harmless at demo scale, and exactly what **P0**'s
-  "half-open connections" item is for — a server-side heartbeat, measured under load.
 - **Sessions never expire.** A token names a play-money wallet forever, and `SESSION_INVALID` only
   ever means "unknown". Fine for the demo; a real session lifetime would be a **P1** decision with
   the host.
@@ -556,12 +647,17 @@ writing:
   `s₀`* — `s₀` can live as a secret, and only the consumed index needs durable storage. **P1**
   decides the host and where that index lives. S3 made the stakes concrete: the SQLite file holds
   the balances and the journal too, so a host without a disk loses more than the cursor.
-- **The landing prediction assumes a symmetric, steady link.** It adds `rtt/2`; jitter and asymmetry
-  move the real landing by the curve's rise over the difference. The play gate measured it exact on
-  localhost's injected latency; **P0** measures it on a real mobile network.
-- **The perf numbers are headless Chromium, not a phone.** `pnpm perf:web` throttles the CPU 4× and
-  emulates a 375×812 DPR-3 screen, and headless frames run at 120 Hz — the same caveat as the slot
-  project's harness. A real mid-range Android is **P0**'s to measure, with the betting window.
+- **Nothing has run on a real phone or a real mobile network.** Every number here is headless
+  Chromium on a desktop (`perf:web` throttles the CPU 4× and emulates a 375×812 DPR-3 screen at
+  120 Hz frames; the verifier's million-hash walk is ≈1.3 s there, a mid-range phone perhaps 3–5×)
+  and every bad network is simulated (P0's lanes: fixed latency, resends — not a cell tower's
+  jitter, which moves a press's real landing by the curve's rise over the jitter, off the `rtt/2`
+  the button prices). P0 measured the server and the simulated links; a phone on a real network
+  against the live demo needs the deploy, so it is **P1**'s.
+- **The load test shares the machine with the server.** `pnpm load` runs 500 clients in one Node
+  process beside the server's, so its fan-out and stamp numbers include contention for the same
+  cores — an upper bound on what the server costs, not a capacity figure. A capacity number needs
+  the clients elsewhere: with the deploy, **P1**.
 - **The client bundle is 101 KB gzipped**, most of it React and zod. The dev message *schemas* ride
   along (a top-level zod call is not provably pure, so the bundler keeps it) — inert, since the
   client never sends one and the server decides whether to listen; the dev *hooks* and
@@ -576,14 +672,6 @@ writing:
   stranger following a link gets a socket and a play-money wallet they never asked for — which is
   also what lets step 5 compare against a `hello`. Harmless at demo scale; **P1** decides whether a
   wallet should wait for a first bet.
-- **The million-hash walk is headless desktop Chromium's ≈1.3 s.** A mid-range phone is perhaps
-  3–5× slower — still without a frozen frame, by construction, but **P0** measures it on the real
-  device along with the betting window.
-- **The play gate's sample size is luck.** `pnpm play:web` refuses to judge on fewer than 8
-  manual cash-outs, and how many it gets depends on a chain drawn fresh each run (C3's re-run got 7,
-  then 8). Pinning `CRASH_DEV_CHAIN_SEED` in `scripts/play.mjs` would fix the crash points but not
-  which rounds the bot lands in; **P0**, which re-runs it under jitter anyway, should make it
-  play until it has its samples rather than for a fixed 30 rounds.
 - **The line ends where the client last drew it, then snaps to the crash.** The crash arrives a
   one-way latency after it happened, so the curve has been drawn that far past the crash point and
   the break pulls it back — ~60 ms of curve at typical latency, invisible below ~50×. A crash during

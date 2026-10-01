@@ -8,6 +8,7 @@ import {
 import type { Logger } from 'pino';
 import type { ServerConfig } from './config.js';
 import type { Game, Outbox } from './game.js';
+import { Lane, NO_FAULTS, type Faults } from './link.js';
 import type { Clock, Scheduler } from './time.js';
 
 /** One end of a connection, whatever carries it — a `ws` socket, or a test's in-process pipe. */
@@ -35,8 +36,10 @@ interface Connection {
   readonly peer: Peer;
   readonly id: number;
   playerId: string | null;
-  /** `devFaults` (§9): this connection's own simulated network, and nobody else's. */
-  faults: { latencyMs: number; dropRate: number };
+  /** `devFaults` / `devStall` (§9, D17): this connection's own simulated network, nobody else's. */
+  faults: Faults;
+  readonly down: Lane;
+  readonly up: Lane;
 }
 
 /**
@@ -53,7 +56,7 @@ export function createHub(deps: {
   clock: Clock;
   scheduler: Scheduler;
   log: Logger;
-  /** For `devFaults` drops — injected so a test's network is reproducible. */
+  /** For `devFaults` losses — injected so a test's network is reproducible. */
   random?: () => number;
 }): Hub {
   const { config, game, clock, scheduler, log } = deps;
@@ -64,18 +67,15 @@ export function createHub(deps: {
 
   const enabled: DevMessageType[] = [];
   if (config.env === 'development') enabled.push('devForceCrashPoint');
-  if (config.faults) enabled.push('devFaults', 'devDisconnect');
+  if (config.faults) enabled.push('devFaults', 'devStall', 'devDisconnect');
   const parse = parseClientOrDevMessage(enabled);
 
-  function transmit(conn: Connection, message: ServerMessage): void {
-    const { latencyMs, dropRate } = conn.faults;
-    if (dropRate > 0 && random() < dropRate) return;
-    const frame = JSON.stringify(message);
-    const write = () => {
-      if (conn.peer.isOpen) conn.peer.send(frame);
-    };
-    if (latencyMs > 0) scheduler.setTimeout(write, latencyMs);
-    else write();
+  /** `frame` is the message already serialised — a broadcast serialises once for every socket. */
+  function transmit(conn: Connection, message: ServerMessage, frame?: string): void {
+    const text = frame ?? JSON.stringify(message);
+    conn.down.deliver(conn.faults, () => {
+      if (conn.peer.isOpen) conn.peer.send(text);
+    });
   }
 
   function bind(conn: Connection, playerId: string): void {
@@ -118,8 +118,13 @@ export function createHub(deps: {
         return;
       }
       case 'devFaults':
-        conn.faults = { latencyMs: message.latencyMs, dropRate: message.dropRate };
+        conn.faults = { latencyMs: message.latencyMs, lossRate: message.lossRate };
         log.info({ conn: conn.id, faults: conn.faults }, 'faults set on own connection');
+        return;
+      case 'devStall':
+        conn.up.stall(message.ms);
+        conn.down.stall(message.ms);
+        log.info({ conn: conn.id, ms: message.ms }, 'own connection stalled');
         return;
       case 'devDisconnect':
         log.info({ conn: conn.id }, 'disconnect requested');
@@ -146,7 +151,9 @@ export function createHub(deps: {
         peer,
         id: nextId++,
         playerId: null,
-        faults: { latencyMs: 0, dropRate: 0 },
+        faults: NO_FAULTS,
+        down: new Lane(clock, scheduler, random),
+        up: new Lane(clock, scheduler, random),
       };
       connections.add(conn);
       return {
@@ -160,10 +167,9 @@ export function createHub(deps: {
               transmit(conn, errorMessageOf('INTERNAL', 'the server could not process that'));
             }
           };
-          // A simulated slow uplink delays the frame's *arrival*, so it is stamped after the delay —
-          // network, not server load (docs/protocol.md §9).
-          if (conn.faults.latencyMs > 0) scheduler.setTimeout(arrive, conn.faults.latencyMs);
-          else arrive();
+          // A simulated slow or lossy uplink delays the frame's *arrival*, so it is stamped after
+          // the delay — network, not server load (docs/protocol.md §9).
+          conn.up.deliver(conn.faults, arrive);
         },
         closed() {
           connections.delete(conn);
@@ -172,7 +178,8 @@ export function createHub(deps: {
       };
     },
     broadcast(message) {
-      for (const conn of connections) if (conn.playerId !== null) transmit(conn, message);
+      const frame = JSON.stringify(message); // once, not once per socket
+      for (const conn of connections) if (conn.playerId !== null) transmit(conn, message, frame);
     },
     send(playerId, message) {
       for (const conn of byPlayer.get(playerId) ?? []) transmit(conn, message);

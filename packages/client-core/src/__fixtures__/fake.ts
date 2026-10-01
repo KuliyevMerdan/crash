@@ -1,7 +1,9 @@
 import { minor } from '@crash/money';
 import {
-  parseClientMessage,
+  DEV_MESSAGE_TYPES,
+  parseClientOrDevMessage,
   type ClientMessage,
+  type DevMessage,
   type ServerMessage,
   type ServerMessageOf,
 } from '@crash/protocol';
@@ -50,8 +52,10 @@ export class VirtualTime implements Scheduler {
  * A scripted server on the other end of an in-process link with configurable latency each way.
  * The test decides what it says; `received` is everything the client sent, parsed.
  */
+const parseClientMessage = parseClientOrDevMessage(DEV_MESSAGE_TYPES); // a dev server listens
+
 export class FakeServer implements Transport {
-  readonly received: ClientMessage[] = [];
+  readonly received: Array<ClientMessage | DevMessage> = [];
   connections = 0;
   up = 0;
   down = 0;
@@ -122,8 +126,12 @@ export class FakeServer implements Transport {
     handlers?.close();
   }
 
-  sent<T extends ClientMessage['type']>(type: T): Array<Extract<ClientMessage, { type: T }>> {
-    return this.received.filter((m): m is Extract<ClientMessage, { type: T }> => m.type === type);
+  sent<T extends (ClientMessage | DevMessage)['type']>(
+    type: T,
+  ): Array<Extract<ClientMessage | DevMessage, { type: T }>> {
+    return this.received.filter(
+      (m): m is Extract<ClientMessage | DevMessage, { type: T }> => m.type === type,
+    );
   }
 }
 

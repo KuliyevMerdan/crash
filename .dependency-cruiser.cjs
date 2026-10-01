@@ -57,6 +57,11 @@ module.exports = {
      * the planned three: a sim that cannot stake cannot measure a return.
      */
     mayOnlyDependOn('tools', 'sim', 'fair', 'curve', 'engine', 'money', 'protocol'),
+    /**
+     * The load test is a crowd of real clients and the wire: it judges the server by the server's
+     * own account (`GET /dev/audit`), never by an engine of its own running beside it (P0).
+     */
+    mayOnlyDependOn('tools', 'load', 'client-core', 'protocol', 'money', 'curve'),
 
     // The hard rules on top of the graph.
     {

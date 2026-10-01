@@ -9,11 +9,34 @@ export interface Sockets {
   close(): void;
 }
 
-/** The `ws` transport for the hub: a socket is a `Peer`, its frames are the hub's to judge. */
-export function createSockets(hub: Hub, log: Logger): Sockets {
+/**
+ * The `ws` transport for the hub: a socket is a `Peer`, its frames are the hub's to judge.
+ *
+ * **A heartbeat finds the sockets that died without saying so.** A client whose network vanished
+ * sends no close frame, and TCP may not notice for many minutes — meanwhile the socket stays in
+ * every broadcast. Every `heartbeatMs` each socket is sent a protocol-level ping (answered by the
+ * browser itself, below any JavaScript); a socket that has not answered the previous one is
+ * terminated. A dead peer is gone within two intervals.
+ */
+export function createSockets(hub: Hub, log: Logger, heartbeatMs: number): Sockets {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
+  const answered = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (answered.get(ws) === false) {
+        log.info('socket missed a heartbeat — terminated');
+        ws.terminate();
+        continue;
+      }
+      answered.set(ws, false);
+      ws.ping();
+    }
+  }, heartbeatMs);
+  heartbeat.unref();
 
   wss.on('connection', (ws: WebSocket) => {
+    answered.set(ws, true);
+    ws.on('pong', () => answered.set(ws, true));
     const attached = hub.attach({
       send: (frame) => ws.send(frame),
       terminate: () => ws.terminate(),
@@ -37,6 +60,7 @@ export function createSockets(hub: Hub, log: Logger): Sockets {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     },
     close() {
+      clearInterval(heartbeat);
       wss.close();
     },
   };

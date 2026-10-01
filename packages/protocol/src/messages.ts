@@ -205,10 +205,20 @@ export const devForceCrashPoint = z.object({
   crashPoint: multiplier,
 });
 
+/**
+ * The sender's own link, both ways: a one-way latency, and the share of frames whose packets are
+ * lost — which TCP resends, so a lost frame arrives late and in order, never not at all (D17).
+ */
 export const devFaults = z.object({
   type: z.literal('devFaults'),
   latencyMs: z.int().min(0).max(10_000),
-  dropRate: z.number().min(0).max(1),
+  lossRate: z.number().min(0).max(0.9),
+});
+
+/** The sender's link freezes for `ms`, both ways, then delivers everything it held, in order. */
+export const devStall = z.object({
+  type: z.literal('devStall'),
+  ms: z.int().min(1).max(30_000),
 });
 
 export const devDisconnect = z.object({ type: z.literal('devDisconnect') });
@@ -216,6 +226,7 @@ export const devDisconnect = z.object({ type: z.literal('devDisconnect') });
 export const devMessage = z.discriminatedUnion('type', [
   devForceCrashPoint,
   devFaults,
+  devStall,
   devDisconnect,
 ]);
 
@@ -225,6 +236,7 @@ export type DevMessageType = DevMessage['type'];
 export const DEV_MESSAGE_TYPES = [
   'devForceCrashPoint',
   'devFaults',
+  'devStall',
   'devDisconnect',
 ] as const satisfies readonly DevMessageType[];
 

@@ -85,15 +85,12 @@ const started = await until(
   'the start',
 );
 
-// The stall, at ~12 s (≈6×): the phone's socket delays everything 5 s each way; the message that ends
-// it is itself delayed 5 s on the way in, so nothing arrives for 5 s, then the backlog.
+// The stall, at ~12 s (≈6×): the phone's link freezes 5 s both ways (devStall), then delivers the
+// backlog in order.
 const STALL_AT = 12_000;
 await until(() => Date.now() - started.startedAt >= STALL_AT, 30_000, 'the stall moment');
 const stallStart = Date.now();
-await a.evaluate(() => {
-  window.__crash.sendRaw({ type: 'devFaults', latencyMs: 5000, dropRate: 0 });
-  window.__crash.sendRaw({ type: 'devFaults', latencyMs: 0, dropRate: 0 });
-});
+await a.evaluate(() => window.__crash.sendRaw({ type: 'devStall', ms: 5000 }));
 
 const crash = await until(
   () => heard.find((m) => m.type === 'crash' && m.roundId === opened.roundId),

@@ -76,8 +76,8 @@ export function createServer(deps: GameServerDeps): Server {
     // The log is about rounds, keyed by roundId — not a line per HTTP probe.
     logController: new LogController({ disableRequestLogging: true }),
   });
-  const sockets = createSockets(core.hub, log);
-  registerRoutes(app, { store, chains: core.chains, game: core.game });
+  const sockets = createSockets(core.hub, log, config.heartbeatMs);
+  registerRoutes(app, { config, store, chains: core.chains, game: core.game });
 
   app.server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/ws') {

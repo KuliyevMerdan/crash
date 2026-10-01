@@ -46,7 +46,29 @@ export type PanelModel =
 
 const x = (hundredths: number) => `${(hundredths / 100).toFixed(2)}×`;
 
-export function panelModel(state: ClientState, form: Form, pending: Pending): PanelModel {
+/**
+ * Beyond half a round trip, how much earlier than the close a bet or a cancel must leave to arrive
+ * in time: the slack for a resend on a lossy link (P0 measured the uplink's p99).
+ */
+export const LAST_CALL_MARGIN_MS = 150;
+
+/**
+ * The last moment, on the server's clock, a press sent from here still reaches the server before
+ * betting closes — the betting window's counterpart of the cash-out's landing price (ADR-0002).
+ */
+export function lastCallAt(state: ClientState): number | null {
+  const round = state.game?.round;
+  if (round?.phase !== 'BETTING') return null;
+  return round.bettingClosesAt - (state.clock.rtt ?? 0) / 2 - LAST_CALL_MARGIN_MS;
+}
+
+/** `serverNow` is the client's estimate of the server's clock, for the last call. */
+export function panelModel(
+  state: ClientState,
+  form: Form,
+  pending: Pending,
+  serverNow: number,
+): PanelModel {
   const game = state.game;
   if (game === null || state.status !== 'live') {
     return {
@@ -61,13 +83,17 @@ export function panelModel(state: ClientState, form: Form, pending: Pending): Pa
   const mine = game.myBets[0];
 
   if (round.phase === 'BETTING') {
+    const late = serverNow >= (lastCallAt(state) ?? Number.POSITIVE_INFINITY);
+    const ping = `ping ${Math.round(state.clock.rtt ?? 0)} ms`;
     if (mine?.status === 'OPEN') {
       return {
         mode: 'cancel',
         betId: mine.betId,
-        enabled: pending === null,
+        enabled: pending === null && !late,
         label: pending === 'cancelling' ? 'Cancelling…' : 'Cancel bet',
-        note: `Your bet: ${formatMinor(mine.amount)}${mine.autoCashOutAt === null ? '' : ` · auto at ${x(mine.autoCashOutAt)}`}. You can cancel until the round starts.`,
+        note: late
+          ? `Your bet: ${formatMinor(mine.amount)}. Too late to cancel — betting closes before a cancel could reach the server (${ping}).`
+          : `Your bet: ${formatMinor(mine.amount)}${mine.autoCashOutAt === null ? '' : ` · auto at ${x(mine.autoCashOutAt)}`}. You can cancel until the round starts.`,
       };
     }
     const stake = parseStake(form.stakeText);
@@ -80,6 +106,9 @@ export function panelModel(state: ClientState, form: Form, pending: Pending): Pa
         return `Not enough balance — you have ${formatMinor(player.balance)}.`;
       if (form.autoOn && (auto === null || auto < 101 || auto > config.maxAutoCashOut)) {
         return `Auto cash-out goes from 1.01× to ${x(config.maxAutoCashOut)}.`;
+      }
+      if (late) {
+        return `Too late for this round — a bet sent now would reach the server after betting closes (${ping}).`;
       }
       return null;
     })();

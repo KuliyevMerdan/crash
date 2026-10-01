@@ -35,6 +35,7 @@ describe('dependency boundaries', () => {
     ['apps/server/src/illegal-web.ts', 'nothing-imports-apps'],
     ['tools/sim/src/illegal-server.ts', 'sim-deps'],
     ['tools/sim/src/illegal-server.ts', 'nothing-imports-apps'],
+    ['tools/load/src/illegal-engine.ts', 'load-deps'],
   ])('rejects %s — %s', (fixture, rule) => {
     expect(ruleNamesFor(fixture)).toContain(rule);
   });
@@ -43,6 +44,7 @@ describe('dependency boundaries', () => {
     'packages/renderer/src/legal.ts',
     'packages/engine/src/legal.ts',
     'apps/web/src/legal.ts',
+    'tools/load/src/legal.ts',
   ])('accepts %s', (fixture) => {
     expect(ruleNamesFor(fixture)).toEqual([]);
   });

@@ -2,7 +2,7 @@ import type { CrashClient } from '@crash/client-core';
 import { formatMinor, minor, type Minor } from '@crash/money';
 import { useEffect, useState } from 'react';
 import { CashOutButton } from './CashOutButton.js';
-import { panelModel, type Form } from './panel.js';
+import { lastCallAt, panelModel, type Form } from './panel.js';
 import { parseStake, stakeText } from './stake.js';
 import type { useBetting } from './useBetting.js';
 import { useClientState } from './useClient.js';
@@ -17,7 +17,8 @@ type Betting = ReturnType<typeof useBetting>;
 export function BetPanel({ client, betting }: { client: CrashClient; betting: Betting }) {
   const state = useClientState(client);
   const [form, setForm] = useState<Form>({ stakeText: '5.00', autoOn: false, autoText: '2.00' });
-  const model = panelModel(state, form, betting.pending);
+  const model = panelModel(state, form, betting.pending, client.serverNow());
+  useLastCall(client, lastCallAt(state));
   const config = state.game?.config;
   const balance = state.game?.player.balance;
 
@@ -149,4 +150,19 @@ export function BetPanel({ client, betting }: { client: CrashClient; betting: Be
 function latencyNote(rtt: number | null): string {
   if (rtt === null) return 'Measuring your ping…';
   return `The server takes your press about ${Math.round(rtt / 2)} ms after you make it — the button already counts that in. Auto cash-out has no such delay.`;
+}
+
+/**
+ * Re-render once at the last call: the panel is derived from the client's state, which does not
+ * change when the clock passes the moment a press can no longer arrive in time — so a timer says so.
+ */
+function useLastCall(client: CrashClient, at: number | null): void {
+  const [, setPassed] = useState(0);
+  useEffect(() => {
+    if (at === null) return;
+    const ms = at - client.serverNow();
+    if (ms < 0) return;
+    const timer = window.setTimeout(() => setPassed((n) => n + 1), ms + 1);
+    return () => window.clearTimeout(timer);
+  }, [client, at]);
 }

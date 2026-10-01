@@ -290,7 +290,7 @@ describe('forced dev rounds claim no link (§9, D13)', () => {
 
 describe('dev messages are heard only by a server that listens (§9)', () => {
   const force = { type: 'devForceCrashPoint', crashPoint: 300 };
-  const faults = { type: 'devFaults', latencyMs: 250, dropRate: 0.2 };
+  const faults = { type: 'devFaults', latencyMs: 250, lossRate: 0.2 };
 
   it('are unknown types to the plain client parser — a production server drops them', () => {
     expect(parseClientMessage(force)).toEqual({ kind: 'unknown-type', type: 'devForceCrashPoint' });
@@ -310,7 +310,12 @@ describe('dev messages are heard only by a server that listens (§9)', () => {
 
   it('are malformed, not dropped, when enabled and wrong', () => {
     const everything = parseClientOrDevMessage(DEV_MESSAGE_TYPES);
-    expect(everything({ type: 'devFaults', latencyMs: -1, dropRate: 0 }).kind).toBe('malformed');
+    expect(everything({ type: 'devFaults', latencyMs: -1, lossRate: 0 }).kind).toBe('malformed');
+    // Loss is resent, not lost (D17): a link that loses every packet never delivers — not a fault
+    // TCP survives, so not one this server simulates.
+    expect(everything({ type: 'devFaults', latencyMs: 0, lossRate: 1 }).kind).toBe('malformed');
+    expect(everything({ type: 'devStall', ms: 0 }).kind).toBe('malformed');
+    expect(everything({ type: 'devStall', ms: 3000 }).kind).toBe('ok');
     expect(everything({ type: 'devForceCrashPoint', crashPoint: 99 }).kind).toBe('malformed');
   });
 });

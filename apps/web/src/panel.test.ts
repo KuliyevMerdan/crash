@@ -1,7 +1,7 @@
 import type { ClientState, GameView } from '@crash/client-core';
 import { minor } from '@crash/money';
 import { describe, expect, it } from 'vitest';
-import { panelModel, type Form } from './panel.js';
+import { LAST_CALL_MARGIN_MS, lastCallAt, panelModel, type Form } from './panel.js';
 import { parseMultiplier, parseStake, stakeText } from './stake.js';
 
 const config = {
@@ -18,7 +18,7 @@ const BETTING: GameView['round'] = {
   roundId: 'R',
   chainIndex: 1,
   phase: 'BETTING',
-  bettingClosesAt: 9,
+  bettingClosesAt: 10_000,
   bets: [],
 };
 const RUNNING: GameView['round'] = {
@@ -86,7 +86,7 @@ describe('parsing what the player types', () => {
 
 describe('the panel says what it will do, and why it will not', () => {
   it('offers a bet during betting, priced in the button', () => {
-    expect(panelModel(state(BETTING), form('5.00'), null)).toEqual({
+    expect(panelModel(state(BETTING), form('5.00'), null, 0)).toEqual({
       mode: 'bet',
       enabled: true,
       stake: 500,
@@ -112,7 +112,7 @@ describe('the panel says what it will do, and why it will not', () => {
       'Auto cash-out goes from 1.01× to 1000.00×.',
     ],
   ])('disables the bet for %s, and says so', (_label, f, note) => {
-    expect(panelModel(state(BETTING), f, null)).toMatchObject({
+    expect(panelModel(state(BETTING), f, null, 0)).toMatchObject({
       mode: 'bet',
       enabled: false,
       note,
@@ -120,7 +120,7 @@ describe('the panel says what it will do, and why it will not', () => {
   });
 
   it('will not start a second bet while the first is on its way', () => {
-    expect(panelModel(state(BETTING), form(), 'placing')).toMatchObject({
+    expect(panelModel(state(BETTING), form(), 'placing', 0)).toMatchObject({
       enabled: false,
       label: 'Placing…',
     });
@@ -134,13 +134,40 @@ describe('the panel says what it will do, and why it will not', () => {
       status: 'OPEN' as const,
       autoCashOutAt: 250,
     };
-    expect(panelModel(state(BETTING, [bet]), form(), null)).toEqual({
+    expect(panelModel(state(BETTING, [bet]), form(), null, 0)).toEqual({
       mode: 'cancel',
       betId: 'B',
       enabled: true,
       label: 'Cancel bet',
       note: 'Your bet: 5.00 · auto at 2.50×. You can cancel until the round starts.',
     });
+  });
+
+  it('stops offering a bet or a cancel that would reach the server after betting closes', () => {
+    // rtt 300: a press leaves 150 ms before it lands, plus the margin for a resend.
+    const last = lastCallAt(state(BETTING));
+    expect(last).toBe(10_000 - 150 - LAST_CALL_MARGIN_MS);
+    expect(panelModel(state(BETTING), form(), null, (last ?? 0) - 1)).toMatchObject({
+      enabled: true,
+    });
+    expect(panelModel(state(BETTING), form(), null, last ?? 0)).toMatchObject({
+      mode: 'bet',
+      enabled: false,
+      note: 'Too late for this round — a bet sent now would reach the server after betting closes (ping 300 ms).',
+    });
+    const bet = {
+      roundId: 'R',
+      betId: 'B',
+      amount: minor(500),
+      status: 'OPEN' as const,
+      autoCashOutAt: null,
+    };
+    expect(panelModel(state(BETTING, [bet]), form(), null, last ?? 0)).toMatchObject({
+      mode: 'cancel',
+      enabled: false,
+      note: 'Your bet: 5.00. Too late to cancel — betting closes before a cancel could reach the server (ping 300 ms).',
+    });
+    expect(lastCallAt(state(RUNNING))).toBeNull();
   });
 
   it('becomes the cash-out while the round runs with an open bet', () => {
@@ -151,14 +178,16 @@ describe('the panel says what it will do, and why it will not', () => {
       status: 'OPEN' as const,
       autoCashOutAt: null,
     };
-    expect(panelModel(state(RUNNING, [bet]), form(), null)).toEqual({
+    expect(panelModel(state(RUNNING, [bet]), form(), null, 0)).toEqual({
       mode: 'cashout',
       betId: 'B',
       stake: 500,
       auto: null,
       enabled: true,
     });
-    expect(panelModel(state(RUNNING, [bet]), form(), 'cashing')).toMatchObject({ enabled: false });
+    expect(panelModel(state(RUNNING, [bet]), form(), 'cashing', 0)).toMatchObject({
+      enabled: false,
+    });
   });
 
   it('shows the cash-out it made, and explains a round it is only watching', () => {
@@ -171,15 +200,15 @@ describe('the panel says what it will do, and why it will not', () => {
       multiplier: 210,
       payout: minor(1050),
     };
-    expect(panelModel(state(RUNNING, [cashed]), form(), null)).toEqual({
+    expect(panelModel(state(RUNNING, [cashed]), form(), null, 0)).toEqual({
       mode: 'settled',
       note: 'Cashed out at 2.10× · +10.50. Watching the rest of the round.',
     });
-    expect(panelModel(state(RUNNING), form(), null)).toMatchObject({ mode: 'watching' });
+    expect(panelModel(state(RUNNING), form(), null, 0)).toMatchObject({ mode: 'watching' });
   });
 
   it('tells a reconnecting player their bet is safe, rather than greying everything out silently', () => {
-    expect(panelModel(state(RUNNING, [], 10_000, 'reconnecting'), form(), null)).toEqual({
+    expect(panelModel(state(RUNNING, [], 10_000, 'reconnecting'), form(), null, 0)).toEqual({
       mode: 'offline',
       note: 'Reconnecting — a bet you placed is safe on the server, and an auto cash-out still fires.',
     });

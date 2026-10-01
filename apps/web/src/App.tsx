@@ -6,6 +6,7 @@ import { BetPanel } from './BetPanel.js';
 import { CurveCanvas } from './CurveCanvas.js';
 import { HistoryStrip } from './HistoryStrip.js';
 import { HowItWorks } from './HowItWorks.js';
+import { NetworkLab } from './NetworkLab.js';
 import { PlayerTable } from './PlayerTable.js';
 import { ResultBanner } from './ResultBanner.js';
 import { verifyHref } from './route.js';
@@ -77,6 +78,7 @@ export function App({ client, onDrawn, onReport }: Props) {
         <BetPanel client={client} betting={betting} />
         {game && <PlayerTable game={game} />}
         <HowItWorks />
+        <NetworkLab client={client} />
       </aside>
       <p className="sr-only" aria-live="polite">
         {announcement}

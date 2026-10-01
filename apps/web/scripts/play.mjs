@@ -9,7 +9,12 @@
 import { chromium } from '@playwright/test';
 import { startStack, until } from './stack.mjs';
 
+// At least 30 rounds, and on until there are 8 manual cash-outs to judge — how many a run gets
+// depends on a chain drawn fresh each time (C3's re-run had 7). Never more than 60.
 const ROUNDS = Number(process.env['ROUNDS'] ?? 30);
+const MIN_MANUAL = 8;
+const MAX_ROUNDS = 60;
+const manualSoFar = () => rounds.filter((r) => r.report?.kind === 'manual').length;
 const ONE_WAY = 150;
 let seed = 20260930;
 const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32;
@@ -32,7 +37,7 @@ await page.waitForFunction(() => window.__crash?.client.getState().status === 'l
   timeout: 20_000,
 });
 await page.evaluate(
-  (ms) => window.__crash.sendRaw({ type: 'devFaults', latencyMs: ms, dropRate: 0 }),
+  (ms) => window.__crash.sendRaw({ type: 'devFaults', latencyMs: ms, lossRate: 0 }),
   ONE_WAY,
 );
 // Let the clock re-learn the rtt (median of five samples, a ping every 5 s).
@@ -44,7 +49,7 @@ await page.waitForFunction(() => (window.__crash.client.getState().clock.rtt ?? 
 const phase = () => page.evaluate(() => window.__crash.client.getState().game?.round.phase);
 const rounds = [];
 
-for (let i = 0; i < ROUNDS; i += 1) {
+for (let i = 0; i < MAX_ROUNDS && (i < ROUNDS || manualSoFar() < MIN_MANUAL); i += 1) {
   await until(async () => (await phase()) === 'CRASHED', 120_000, 'a crash'); // start each round clean
   await until(async () => (await phase()) === 'BETTING', 30_000, 'betting');
   await page.waitForTimeout(ONE_WAY + 50); // let the "betting open" frame settle into the panel
@@ -129,7 +134,7 @@ const autoWrong = autoRounds.filter(
 );
 
 const lines = [
-  `**C2 play** · ${ROUNDS} rounds · ${ONE_WAY * 2} ms round trip (devFaults) · real panel, real Chromium`,
+  `**C2 play** · ${rounds.length} rounds · ${ONE_WAY * 2} ms round trip (devFaults) · real panel, real Chromium`,
   '',
   '| Measure | Result |',
   '| --- | --- |',
@@ -145,7 +150,7 @@ const lines = [
 console.log(lines.join('\n'));
 
 const failures = [];
-if (manual.length < 8) failures.push('too few manual cash-outs to judge');
+if (manual.length < MIN_MANUAL) failures.push('too few manual cash-outs to judge');
 if (max(surprise) > 2)
   failures.push('a cash-out paid more than two hundredths off the button’s promise');
 if (autoWrong.length > 0) failures.push('an auto cash-out broke the rule');

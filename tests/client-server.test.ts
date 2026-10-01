@@ -5,7 +5,7 @@ import { minor } from '@crash/money';
 import { createGameServer, memoryStore, readConfig } from '@crash/server';
 import { pino } from 'pino';
 import { describe, expect, it } from 'vitest';
-import { VirtualNet, VirtualTime } from './support/virtual.js';
+import { lcg, VirtualNet, VirtualTime } from './support/virtual.js';
 
 /**
  * ROADMAP C0 "Done when": the real client core against the real server — `apps/server`'s game loop,
@@ -14,11 +14,6 @@ import { VirtualNet, VirtualTime } from './support/virtual.js';
  * client must hold what the server holds: the phase, the table, its own bets, its balance, and the
  * multiplier it would draw.
  */
-
-function lcg(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32;
-}
 
 function world(latency: { up: number; down: number }, seed: number) {
   const time = new VirtualTime();

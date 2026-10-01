@@ -9,11 +9,17 @@ import type { Attached, Hub } from '@crash/server';
 export class VirtualTime {
   now = 1_790_000_000_000;
   private seq = 0;
-  private timers: Array<{ at: number; seq: number; fn: () => void; live: boolean }> = [];
+  /**
+   * A binary min-heap on `(at, seq)`. A crowd of a few hundred clients keeps thousands of timers
+   * alive — pings, request timeouts, the server's fault lanes — and a linear scan per firing made
+   * the P0 soak quadratic; the heap makes each firing logarithmic. A cancelled timer stays in the
+   * heap, dead, until it surfaces.
+   */
+  private heap: Array<{ at: number; seq: number; fn: () => void; live: boolean }> = [];
 
   setTimeout(fn: () => void, ms: number): { cancel(): void } {
     const timer = { at: this.now + Math.max(0, Math.floor(ms)), seq: this.seq++, fn, live: true };
-    this.timers.push(timer);
+    this.push(timer);
     return { cancel: () => void (timer.live = false) };
   }
 
@@ -40,23 +46,57 @@ export class VirtualTime {
   advance(ms: number): void {
     const until = this.now + ms;
     for (;;) {
-      let next: (typeof this.timers)[number] | undefined;
-      for (const t of this.timers) {
-        if (
-          t.live &&
-          t.at <= until &&
-          (next === undefined || t.at < next.at || (t.at === next.at && t.seq < next.seq))
-        ) {
-          next = t;
-        }
-      }
-      if (next === undefined) break;
+      const next = this.heap[0];
+      if (next === undefined || next.at > until) break;
+      this.pop();
+      if (!next.live) continue;
       next.live = false;
       this.now = next.at;
       next.fn();
     }
-    this.timers = this.timers.filter((t) => t.live);
     this.now = until;
+  }
+
+  private before(a: number, b: number): boolean {
+    const x = this.heap[a];
+    const y = this.heap[b];
+    if (x === undefined || y === undefined) return false;
+    return x.at < y.at || (x.at === y.at && x.seq < y.seq);
+  }
+
+  private swap(a: number, b: number): void {
+    const x = this.heap[a];
+    const y = this.heap[b];
+    if (x === undefined || y === undefined) return;
+    this.heap[a] = y;
+    this.heap[b] = x;
+  }
+
+  private push(timer: (typeof this.heap)[number]): void {
+    let i = this.heap.push(timer) - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (!this.before(i, parent)) break;
+      this.swap(i, parent);
+      i = parent;
+    }
+  }
+
+  private pop(): void {
+    const last = this.heap.pop();
+    if (last === undefined || this.heap.length === 0) return;
+    this.heap[0] = last;
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let smallest = i;
+      if (l < this.heap.length && this.before(l, smallest)) smallest = l;
+      if (r < this.heap.length && this.before(r, smallest)) smallest = r;
+      if (smallest === i) return;
+      this.swap(i, smallest);
+      i = smallest;
+    }
   }
 }
 
@@ -68,6 +108,7 @@ export class VirtualTime {
 export class VirtualNet implements Transport {
   links = 0;
   private cutCurrent: (() => void) | null = null;
+  private darkCurrent: (() => void) | null = null;
 
   constructor(
     private readonly time: VirtualTime,
@@ -78,6 +119,7 @@ export class VirtualNet implements Transport {
   connect(handlers: TransportHandlers) {
     this.links += 1;
     let alive = true;
+    let dark = false;
     let attached: Attached | null = null;
     const kill = (notifyClient: boolean) => {
       if (!alive) return;
@@ -86,13 +128,14 @@ export class VirtualNet implements Transport {
       if (notifyClient) handlers.close();
     };
     this.cutCurrent = () => kill(true);
+    this.darkCurrent = () => void (dark = true);
 
     this.time.setTimeout(() => {
       if (!alive) return;
       attached = this.hub.attach({
         send: (frame) =>
           void this.time.setTimeout(() => {
-            if (alive) handlers.message(frame);
+            if (alive && !dark) handlers.message(frame);
           }, this.latency.down),
         terminate: () => kill(true),
         get isOpen() {
@@ -105,7 +148,7 @@ export class VirtualNet implements Transport {
     return {
       send: (frame: string) =>
         void this.time.setTimeout(() => {
-          if (alive) attached?.receive(frame);
+          if (alive && !dark) attached?.receive(frame);
         }, this.latency.up),
       close: () => kill(false),
     };
@@ -116,4 +159,19 @@ export class VirtualNet implements Transport {
     this.cutCurrent?.();
     this.cutCurrent = null;
   }
+
+  /**
+   * The network goes dark under the live connection without anyone hearing a close: frames are
+   * lost both ways, and both ends keep the socket — a half-open connection.
+   */
+  blackhole(): void {
+    this.darkCurrent?.();
+    this.darkCurrent = null;
+  }
+}
+
+/** A seeded generator, so a run with randomness in it is the same run every time. */
+export function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32;
 }

@@ -26,6 +26,8 @@ export interface ServerConfig {
     /** Development only: a fixed `s₀`, so a dev server's rounds are reproducible. */
     readonly devSeed: string | null;
   };
+  /** How often each socket is pinged; one unanswered and it is terminated (half-open sockets). */
+  readonly heartbeatMs: number;
   /** What a new player's wallet starts with — play money. */
   readonly startingBalance: number;
   readonly logLevel: string;
@@ -56,6 +58,7 @@ const env = z.object({
   CRASH_CHAIN_SALT_PREFIX: z.string().min(1).default('crash-demo-chain-'),
   CRASH_DEV_CHAIN_SEED: z.string().optional(),
   CRASH_STARTING_BALANCE: int(100_000),
+  CRASH_HEARTBEAT_MS: int(10_000),
   CRASH_GROWTH_RATE: z.coerce.number().positive().default(DEFAULT_GAME.curve.growthRatePerSecond),
   CRASH_BETTING_MS: int(DEFAULT_GAME.bettingPhaseMs),
   CRASH_CRASHED_MS: int(DEFAULT_GAME.crashedPhaseMs),
@@ -88,6 +91,7 @@ export function readConfig(source: Record<string, string | undefined>): ServerCo
   if (e.CRASH_DEV_CHAIN_SEED !== undefined && !/^[0-9a-f]{64}$/.test(e.CRASH_DEV_CHAIN_SEED)) {
     violations.push('CRASH_DEV_CHAIN_SEED must be 64 lowercase hex characters');
   }
+  if (e.CRASH_HEARTBEAT_MS < 100) violations.push('CRASH_HEARTBEAT_MS must be at least 100');
   if (e.CRASH_CHAIN_LENGTH < 2) violations.push('CRASH_CHAIN_LENGTH must be at least 2');
   if (e.CRASH_CHAIN_ROTATE_AT < 1 || e.CRASH_CHAIN_ROTATE_AT >= e.CRASH_CHAIN_LENGTH) {
     violations.push('CRASH_CHAIN_ROTATE_AT must be between 1 and CRASH_CHAIN_LENGTH − 1');
@@ -112,6 +116,7 @@ export function readConfig(source: Record<string, string | undefined>): ServerCo
       saltPrefix: e.CRASH_CHAIN_SALT_PREFIX,
       devSeed: e.CRASH_DEV_CHAIN_SEED ?? null,
     },
+    heartbeatMs: e.CRASH_HEARTBEAT_MS,
     startingBalance: e.CRASH_STARTING_BALANCE,
     logLevel: e.LOG_LEVEL,
   };

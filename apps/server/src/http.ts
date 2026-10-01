@@ -1,6 +1,8 @@
+import { auditMoney, myBetsOf, roundSnapshotOf } from '@crash/engine';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ChainBook } from './chains.js';
+import type { ServerConfig } from './config.js';
 import type { Game } from './game.js';
 import type { Store } from './store/store.js';
 
@@ -15,9 +17,9 @@ const params = z.object({
  */
 export function registerRoutes(
   app: FastifyInstance,
-  deps: { store: Store; chains: ChainBook; game: Game },
+  deps: { config: ServerConfig; store: Store; chains: ChainBook; game: Game },
 ): void {
-  const { store, chains, game } = deps;
+  const { config, store, chains, game } = deps;
 
   app.get('/health', async () => ({ ok: true }));
 
@@ -45,4 +47,27 @@ export function registerRoutes(
     if (reveal === null) return reply.code(404).send({ error: 'not revealed' });
     return reveal;
   });
+
+  /**
+   * **Development only** (docs/protocol.md §9): the server's own account of itself, for a load
+   * test to hold its clients against — the money law, every wallet, the public round and history.
+   * Nothing secret: the round is the snapshot every client gets, which never carries an unrevealed
+   * seed. A production server does not have the route at all.
+   */
+  if (config.env === 'development') {
+    app.get('/dev/audit', async () => {
+      const s = game.snapshot;
+      const money = auditMoney(s);
+      return {
+        money: { granted: money.granted, accounted: money.accounted, house: s.house },
+        round: roundSnapshotOf(s),
+        history: s.history,
+        players: [...s.players.values()].map((p) => ({
+          id: p.id,
+          balance: p.balance,
+          myBets: myBetsOf(s, p.id),
+        })),
+      };
+    });
+  }
 }

@@ -291,6 +291,35 @@ describe('staying connected', () => {
     expect(t.server.connections).toBe(before + 1);
   });
 
+  it('gives up on a socket that opens and then never answers the authenticate', () => {
+    // Liveness runs on pings, and pings start at hello — so a link that goes dark between the open
+    // and the hello would leave the client "joining" forever without a deadline of its own.
+    const t = setup({ pingIntervalMs: 1000 });
+    t.time.advance(2 * t.server.up + 10);
+    expect(t.client.getState().status).toBe('authenticating');
+    t.time.advance(2900);
+    expect(t.server.connections).toBe(1); // still within three intervals
+    t.time.advance(200);
+    expect(t.client.getState().status).toBe('reconnecting');
+    t.time.advance(1000);
+    expect(t.server.connections).toBe(2);
+    login(t);
+    expect(t.client.getState().status).toBe('live');
+    t.time.advance(10_000); // and the deadline is gone once live: pings keep it
+    expect(t.server.connections).toBe(2);
+  });
+
+  it('sends a dev message down its own socket while it has one, and says when it has none', () => {
+    const t = setup();
+    login(t);
+    expect(t.client.sendDev({ type: 'devStall', ms: 3000 })).toBe(true);
+    t.time.advance(t.server.up + 1);
+    expect(t.server.sent('devStall')).toEqual([{ type: 'devStall', ms: 3000 }]);
+    t.server.drop();
+    t.time.advance(1);
+    expect(t.client.sendDev({ type: 'devDisconnect' })).toBe(false);
+  });
+
   it('keeps the last view through a drop — stale, not blank — until the next hello', () => {
     const t = setup();
     login(t);
