@@ -1,4 +1,4 @@
-import { curve, multiplierAt } from '@crash/curve';
+import { curve, elapsedAt, MAX_MULTIPLIER, multiplierAt } from '@crash/curve';
 import { parseServerMessage, type ServerMessage } from '@crash/protocol';
 import { createGameServer, memoryStore, readConfig } from '@crash/server';
 import { pino } from 'pino';
@@ -48,7 +48,16 @@ describe('hostile clocks (ROADMAP P0)', () => {
     liar.send({ type: 'authenticate', token: null, nick: 'liar' });
     liar.send({ type: 'devForceCrashPoint', crashPoint: 5000 }); // the next round climbs to 50×
 
-    for (let i = 0; i < 400 && honest.last('bettingOpen')?.chainIndex !== null; i += 1) {
+    // The force applies to the *next* round, so first the one already open must run its course —
+    // and its crash point is the chain's, anything up to the cap. Wait as long as the longest round
+    // this config can produce, not a guess: a fixed 4 s passed only when that round bust early.
+    const { bettingPhaseMs, crashedPhaseMs } = config.game;
+    const longestRound =
+      bettingPhaseMs +
+      elapsedAt(curve(config.game.curve.growthRatePerSecond), MAX_MULTIPLIER) +
+      crashedPhaseMs;
+    const deadline = time.now + longestRound + 1000;
+    while (honest.last('bettingOpen')?.chainIndex !== null && time.now < deadline) {
       time.advance(10);
     }
     const open = honest.last('bettingOpen');
