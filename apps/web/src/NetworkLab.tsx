@@ -50,6 +50,15 @@ export function NetworkLab({ client }: { client: CrashClient }) {
     client.sendDev({ type: 'devFaults', latencyMs: lat, lossRate: loss });
   };
 
+  // The server drops the connection (`devDisconnect`), and this end lets go too. A close the server
+  // starts does not get through every proxy: behind Render's, the browser heard nothing until the
+  // proxy timed out ~20 s later (P1). A close the browser starts does, at once.
+  const drop = () => {
+    if (!client.sendDev({ type: 'devDisconnect' })) return;
+    note('dropped by the server');
+    client.dropConnection();
+  };
+
   const rtt = state.clock.rtt;
   return (
     <details className="lab">
@@ -91,10 +100,7 @@ export function NetworkLab({ client }: { client: CrashClient }) {
         >
           Freeze 3 s
         </button>
-        <button
-          type="button"
-          onClick={() => client.sendDev({ type: 'devDisconnect' }) && note('dropped by the server')}
-        >
+        <button type="button" onClick={drop}>
           Drop connection
         </button>
       </div>

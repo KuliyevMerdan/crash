@@ -491,13 +491,15 @@ dropped and logged, never answered (§1, invariant 9) — so their existence is 
   doubling for each further loss — while every frame behind it waits (head-of-line blocking).
   `devStall` freezes both lanes for `ms`, then delivers what they held, in order. Inbound frames
   are stamped when they leave the lane — they had not "arrived" before (ADR-0002) — so the delay is
-  honest network, not server load. `devDisconnect` closes the socket from the server's end — a close
-  frame with code `4000`, which any proxy in between passes on, so the client starts reconnecting at
-  once: the one fault that does lose what was in flight, and the one TCP cannot hide. (It was a hard
-  drop with no close frame until P1 found that a browser behind Render's proxy did not hear of one
-  for ~20 s, until its own liveness check fired — a dark link, which `devStall` already simulates.
-  The server closes every connection this way, at shutdown too; only the heartbeat drops a socket
-  hard, because a peer that stopped answering pings is not there to hear a close.) Because they touch
+  honest network, not server load. `devDisconnect` closes the socket from the server's end, with a close
+  frame (code `4000`): the one fault that does lose what was in flight, and the one TCP cannot hide.
+  The server ends every connection this way, at shutdown too; only the heartbeat drops a socket
+  hard, because a peer that stopped answering pings is not there to hear a close. **A server's close
+  does not reach every browser**: behind Render's proxy neither a hard drop nor a close frame got
+  through until the proxy timed out, ~20 s later (P1, measured from Node: code 1006 at 20.1 s; the
+  same call against the server directly closes with 4000 in 2 ms). So the network lab's button sends
+  `devDisconnect` and then lets go of its own end, which the proxy does pass on; and after a
+  shutdown it is the client's liveness check (three missed pongs) that notices. Because they touch
   nobody else, they can stay on for the live demo, where a reviewer breaks their own network from
   the debug panel and watches the client recover.
 - **`GET /dev/audit`** — development servers only; a production server does not have the route.

@@ -398,7 +398,8 @@ the way real ones break — then held every player to the server's account of it
   (`apps/server/src/link.ts`): a fixed latency, and with probability `lossRate` a frame's packet is
   resent after TCP's retransmission timeout (200 ms, doubling) while every frame behind it waits.
   `devStall` freezes both lanes, `devDisconnect` closes the socket from the server's end (a close
-  frame, code 4000 — P1). S3's `dropRate` discarded frames
+  frame, code 4000 — though behind Render's proxy not even that reaches the browser, so the lab's
+  button lets go of its own end too: P1). S3's `dropRate` discarded frames
   mid-connection — a fault no WebSocket produces — and is gone. **Order is the lane's queue, not
   its timers**: the first version armed a timer per frame, and the load run caught real Node timers
   firing late enough for a tick to overtake its round's crash — 114 resyncs in two minutes, and one

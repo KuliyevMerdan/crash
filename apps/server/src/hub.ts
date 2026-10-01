@@ -15,9 +15,10 @@ import type { Clock, Scheduler } from './time.js';
 export interface Peer {
   send(frame: string): void;
   /**
-   * End the connection, telling the other end: a close frame, which a proxy in between passes on at
-   * once. A hard drop is what a dead network does, and behind a proxy (Render's, P1) the browser only
-   * learns of it from its own liveness check, ~20 s later — so the server never chooses one.
+   * End the connection, telling the other end: a close frame, not the hard drop a dead network makes.
+   * Not every proxy passes even a close frame on — behind Render's the browser heard of neither until
+   * the proxy timed out, ~20 s later (P1) — so nothing relies on it reaching the browser: the network
+   * lab lets go of its own end too, and at a shutdown the clients' liveness check notices.
    */
   close(): void;
   readonly isOpen: boolean;
