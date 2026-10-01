@@ -375,3 +375,8 @@ _1–2 days._
 
 **Done when:** a stranger can open the live link, play a round, break the network from the debug
 panel, watch it recover, and verify the result they just got — in under two minutes.
+
+**Met 2026-10-01**, as a test: `E2E_BASE_URL=https://crash-demo-ut88.onrender.com pnpm e2e:live`
+passed three runs out of three against the live demo, open to verified in 7.6, 15.6 and 10.6 s —
+after its first deploy failed all three at "watch it recover" (Render's proxy does not pass on a
+close the server starts; the lab now lets go of its own end too).

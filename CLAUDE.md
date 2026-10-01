@@ -485,7 +485,19 @@ The crowd is `tools/load`'s `Population`, and it runs twice:
     verified — in under two minutes. It touches nothing but the page, so `E2E_BASE_URL=… pnpm
     e2e:live` runs it unchanged against the live demo.
 
-**What P1 found.** The duel's first run failed its last assertion — a counter at 3.15× in a round
+**What P1 found.** The live demo failed the stranger spec three times out of three on its first
+deploy, at one step: after **Drop connection**, the browser never heard it was dropped. Measured
+from Node against the live server: `devDisconnect` closed the socket with code 1006 after 20.1 s,
+nothing heard in between; against the server directly, 2 ms. The server was hard-dropping the socket
+(`ws.terminate()`), and Render's proxy kept the browser's side open until it timed out. The server
+now ends a connection with a close frame (code 4000) — and deployed, that did not get through
+either: still 1006 at 20.1 s, twice. A close the *browser* starts does get through, so the lab's
+button sends `devDisconnect` and then drops its own end; after a server shutdown behind such a proxy
+it is the client's liveness check that notices. Local tests could not have found it: there is no
+proxy on localhost. The same deploy also showed `autoDeployTrigger: checksPass` not firing for the
+first fix (deployed by hand); it fired for the second.
+
+The duel's first run failed its last assertion — a counter at 3.15× in a round
 forced to 3.00× — and it was the test: the frame recorder started before the forced round, and the
 round before it had climbed past 3×. Inside the forced round both pages heard the crash 3 ms after
 `crashedAt` and drew their last frame at exactly 3.00×. Pairing frames within 2 ms, as `perf:web`
@@ -531,6 +543,8 @@ What `pnpm e2e` measured (2026-10-01, local runs):
 | Duel: crash heard after `crashedAt`, both pages | 3 ms |
 | Stranger: open → verified (round crashed at) | 10.7 s (1.82×), 13.2 s (2.65×), 6.7 s (1.00×) |
 | Stranger, against the production image at `--cpus=0.1 --memory=512m` | 16.0 s (1.45×) |
+| **Stranger, against the live demo** (`pnpm e2e:live`, three runs) | **7.6 s (1.87×), 15.6 s (2.71×), 10.6 s (1.26×)** |
+| Live demo: ping from the test machine, 20 samples (min / p50 / p95) | 99 / 109 / 177 ms |
 | Page errors, every run | 0 |
 
 What `pnpm perf:web` measured (2026-09-30):
