@@ -25,9 +25,21 @@ export interface ServerConfig {
     readonly saltPrefix: string;
     /** Development only: a fixed `s₀`, so a dev server's rounds are reproducible. */
     readonly devSeed: string | null;
+    /**
+     * The id a fresh store's first chain gets: `1`, or `'boot'` — the Unix second it was generated.
+     * `'boot'` is for a host with no disk (ADR-0003): every boot draws a new chain, and an id of its
+     * own means a link from before a restart can never name a round of the chain after it.
+     */
+    readonly firstId: number | 'boot';
   };
   /** How often each socket is pinged; one unanswered and it is terminated (half-open sockets). */
   readonly heartbeatMs: number;
+  /**
+   * The built web app (`apps/web/dist`), served from `/` beside `/ws` and `/fair/*` — one origin,
+   * so the page needs no CORS and no server address (ADR-0003). `null`: the API alone, as in
+   * development, where Vite serves the page and proxies the rest.
+   */
+  readonly staticDir: string | null;
   /** What a new player's wallet starts with — play money. */
   readonly startingBalance: number;
   readonly logLevel: string;
@@ -52,11 +64,13 @@ const env = z.object({
   HOST: z.string().default('0.0.0.0'),
   PORT: int(8080),
   CRASH_DB: z.string().optional(),
+  CRASH_STATIC_DIR: z.string().min(1).optional(),
   CRASH_FAULTS: z.enum(['on', 'off']).optional(),
   CRASH_CHAIN_LENGTH: int(1_000_000),
   CRASH_CHAIN_ROTATE_AT: int(50_000),
   CRASH_CHAIN_SALT_PREFIX: z.string().min(1).default('crash-demo-chain-'),
   CRASH_DEV_CHAIN_SEED: z.string().optional(),
+  CRASH_CHAIN_FIRST_ID: z.union([z.literal('boot'), z.coerce.number().int().min(1)]).default(1),
   CRASH_STARTING_BALANCE: int(100_000),
   CRASH_HEARTBEAT_MS: int(10_000),
   CRASH_GROWTH_RATE: z.coerce.number().positive().default(DEFAULT_GAME.curve.growthRatePerSecond),
@@ -115,8 +129,10 @@ export function readConfig(source: Record<string, string | undefined>): ServerCo
       rotateAt: e.CRASH_CHAIN_ROTATE_AT,
       saltPrefix: e.CRASH_CHAIN_SALT_PREFIX,
       devSeed: e.CRASH_DEV_CHAIN_SEED ?? null,
+      firstId: e.CRASH_CHAIN_FIRST_ID,
     },
     heartbeatMs: e.CRASH_HEARTBEAT_MS,
+    staticDir: e.CRASH_STATIC_DIR ?? null,
     startingBalance: e.CRASH_STARTING_BALANCE,
     logLevel: e.LOG_LEVEL,
   };

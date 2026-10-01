@@ -9,8 +9,14 @@ describe('the boot contract', () => {
       database: ':memory:',
       faults: true,
       port: 8080,
+      staticDir: null, // Vite serves the page in development
     });
-    expect(config.chain).toMatchObject({ length: 1_000_000, rotateAt: 50_000, devSeed: null });
+    expect(config.chain).toMatchObject({
+      length: 1_000_000,
+      rotateAt: 50_000,
+      devSeed: null,
+      firstId: 1,
+    });
   });
 
   it('refuses every development convenience in production, naming them all at once', () => {
@@ -38,6 +44,17 @@ describe('the boot contract', () => {
     expect(
       readConfig({ CRASH_ENV: 'production', CRASH_DB: 'x.db', CRASH_FAULTS: 'on' }).faults,
     ).toBe(true);
+  });
+
+  it('names the first chain by its boot second only when asked — a host without a disk', () => {
+    expect(readConfig({ CRASH_CHAIN_FIRST_ID: 'boot' }).chain.firstId).toBe('boot');
+    expect(readConfig({ CRASH_CHAIN_FIRST_ID: '7' }).chain.firstId).toBe(7);
+    expect(() => readConfig({ CRASH_CHAIN_FIRST_ID: '0' })).toThrow(/CRASH_CHAIN_FIRST_ID/);
+  });
+
+  it('serves the web app only when told where it is', () => {
+    expect(readConfig({ CRASH_STATIC_DIR: '/app/web' }).staticDir).toBe('/app/web');
+    expect(() => readConfig({ CRASH_STATIC_DIR: '' })).toThrow(/CRASH_STATIC_DIR/);
   });
 
   it.each([

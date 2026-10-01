@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { curve, elapsedAt } from '@crash/curve';
@@ -15,6 +15,7 @@ import {
   testConfig,
   type Running,
 } from './__fixtures__/harness.js';
+import { BootError } from './config.js';
 import { sqliteStore } from './store/sqlite.js';
 
 const DEV_SEED = devSeedWithFirstCrashAtLeast(400); // round 1 runs ≥ 1.4 s at k = 1
@@ -373,5 +374,50 @@ describe('the wire, at the edges', () => {
     const prodConfig = testConfig({ CRASH_ENV: 'production', CRASH_DB: dbFile() });
     const prod = await run(prodConfig, sqliteStore(prodConfig.database));
     expect((await fetch(`${prod.url}/dev/audit`)).status).toBe(404);
+  });
+});
+
+describe('one origin: the page, the socket and the proof (ADR-0003)', () => {
+  it('serves the built web app from / with the API beside it, never shadowed by a file', async () => {
+    const web = path.join(dir, 'web');
+    mkdirSync(path.join(web, 'assets'), { recursive: true });
+    mkdirSync(path.join(web, 'fair'), { recursive: true });
+    writeFileSync(path.join(web, 'index.html'), '<!doctype html><title>crash</title>');
+    writeFileSync(path.join(web, 'assets', 'index-AbC123.js'), 'export {};');
+    writeFileSync(path.join(web, 'fair', 'chains'), 'a file that must not win');
+    writeFileSync(path.join(web, 'ready'), 'nor this one');
+    const server = await run(testConfig({ CRASH_DEV_CHAIN_SEED: DEV_SEED, CRASH_STATIC_DIR: web }));
+
+    const page = await fetch(`${server.url}/`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('<title>crash</title>');
+    // The page names the current assets, so it is never cached; the assets are named by content.
+    expect(page.headers.get('cache-control')).toBe('no-cache');
+    const asset = await fetch(`${server.url}/assets/index-AbC123.js`);
+    expect(asset.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    expect(await getJson(`${server.url}/ready`)).toEqual({ ready: true });
+    expect(chainListing.parse(await getJson(`${server.url}/fair/chains`)).chains).toHaveLength(1);
+    const ada = await connect(server); // the socket upgrade on the same port
+    expect((await ada.login('ada')).round.phase).toBe('BETTING');
+    expect((await fetch(`${server.url}/no-such-file.js`)).status).toBe(404);
+  });
+
+  it('on a host with no disk, names each boot’s chain by its boot second (ADR-0003)', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const server = await run(testConfig({ CRASH_CHAIN_FIRST_ID: 'boot' }));
+    const after = Math.floor(Date.now() / 1000);
+    const { chains } = chainListing.parse(await getJson(`${server.url}/fair/chains`));
+    expect(chains).toHaveLength(1);
+    expect(chains[0]?.id).toBeGreaterThanOrEqual(before);
+    expect(chains[0]?.id).toBeLessThanOrEqual(after);
+    const ada = await connect(server);
+    expect((await ada.login('ada')).chain.id).toBe(chains[0]?.id);
+  });
+
+  it('refuses to boot on a directory with no index.html, before drawing a chain', async () => {
+    await expect(
+      start(testConfig({ CRASH_STATIC_DIR: path.join(dir, 'nowhere') })),
+    ).rejects.toBeInstanceOf(BootError);
   });
 });

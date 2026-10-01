@@ -5,16 +5,21 @@ import type { RoundLink } from '@crash/protocol';
  * into a chat, opened cold, served by any static host without a rewrite rule.
  *
  * - `#/verify/1/84213` — check round 84213 of chain 1
+ * - `#/verify/latest` — whichever round finished last: the one link that outlives a server whose
+ *   chain is drawn afresh at every boot (ADR-0003), so the README can point at it
  * - `#/verify` — the form, empty
  * - anything else — the game
  */
 export type Route =
-  { readonly page: 'game' } | { readonly page: 'verify'; readonly link: RoundLink | null };
+  | { readonly page: 'game' }
+  | { readonly page: 'verify'; readonly link: RoundLink | null }
+  | { readonly page: 'latest' };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/');
   if (parts[0] !== 'verify') return { page: 'game' };
   if (parts.length === 1) return { page: 'verify', link: null };
+  if (parts.length === 2 && parts[1] === 'latest') return { page: 'latest' };
   const chainId = positive(parts[1]);
   const chainIndex = positive(parts[2]);
   if (parts.length !== 3 || chainId === null || chainIndex === null) {
@@ -25,6 +30,13 @@ export function parseRoute(hash: string): Route {
 
 export function verifyHref(link: RoundLink): string {
   return `#/verify/${link.chainId}/${link.chainIndex}`;
+}
+
+/** The newest round in a history (newest first) that can be verified — a forced round cannot. */
+export function latestLink(
+  history: readonly { readonly link: RoundLink | null }[],
+): RoundLink | null {
+  return history.find((h) => h.link !== null)?.link ?? null;
 }
 
 /**

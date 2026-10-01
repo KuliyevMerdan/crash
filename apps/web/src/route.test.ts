@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRoundRef, parseRoute, verifyHref } from './route.js';
+import { latestLink, parseRoundRef, parseRoute, verifyHref } from './route.js';
 
 describe('parseRoute', () => {
   it.each([
@@ -14,11 +14,27 @@ describe('parseRoute', () => {
     ['#/verify/x/3', { page: 'verify', link: null }],
     ['#/verify/1/2/3', { page: 'verify', link: null }],
     ['#/verify/1/99999999999999999999', { page: 'verify', link: null }],
+    ['#/verify/latest', { page: 'latest' }],
+    ['#verify/latest', { page: 'latest' }],
+    ['#/verify/latest/1', { page: 'verify', link: null }],
   ])('%j', (hash, route) => expect(parseRoute(hash)).toEqual(route));
 
   it('round-trips a link through its href', () => {
     const link = { chainId: 3, chainIndex: 999_999 };
     expect(parseRoute(verifyHref(link))).toEqual({ page: 'verify', link });
+  });
+});
+
+describe('latestLink', () => {
+  it('is the newest verifiable round, skipping a forced one', () => {
+    const one = { chainId: 1, chainIndex: 41 };
+    const two = { chainId: 1, chainIndex: 40 };
+    expect(latestLink([{ link: null }, { link: one }, { link: two }])).toEqual(one);
+  });
+
+  it('is null before any round has finished, or when none can be verified', () => {
+    expect(latestLink([])).toBeNull();
+    expect(latestLink([{ link: null }])).toBeNull();
   });
 });
 

@@ -35,6 +35,7 @@ interface Props {
  */
 export function Root(props: Props) {
   const route = useRoute();
+  if (route.page === 'latest') return <VerifyPage key="latest" client={props.client} latest />;
   if (route.page === 'verify') {
     const key = route.link ? `${route.link.chainId}:${route.link.chainIndex}` : 'none';
     return <VerifyPage key={key} client={props.client} link={route.link} />;

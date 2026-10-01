@@ -1,0 +1,13 @@
+# The build runs inside the image; nothing prebuilt or machine-local goes in.
+node_modules
+**/node_modules
+**/dist
+**/dist-perf
+**/.turbo
+**/*.tsbuildinfo
+.git
+.claude
+.env
+.env.*
+test-results
+playwright-report

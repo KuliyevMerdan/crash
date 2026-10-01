@@ -1,0 +1,38 @@
+# The live demo — a Render Blueprint (ROADMAP P1, ADR-0003).
+#
+# One free web service built from the repository's Dockerfile: apps/server serving the socket, the
+# fairness endpoints and the web app from one origin. Free because a portfolio demo should cost
+# nothing to keep up; the price, stated in ADR-0003 and the README, is a spin-down after 15 idle
+# minutes and no persistent disk — so every boot is a fresh table: a new chain with a new
+# published commit, fresh play-money wallets, an empty history. Nothing that claims to survive is
+# lost, because nothing claims to: a round is verifiable for as long as its chain is served.
+#
+# No secrets. PORT is injected by Render and read by the server; every value below is a choice
+# this host makes about the demo, not a credential.
+
+services:
+  - type: web
+    name: crash-demo
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Answers once the chain is published and the round loop is running.
+    healthCheckPath: /ready
+    # Deploy only commits CI has passed — the demo is never a build `pnpm check` or the E2E rejected.
+    autoDeployTrigger: checksPass
+    envVars:
+      # The network lab: latency, loss, a freeze, a dropped connection — on the visitor's own
+      # socket only (docs/protocol.md §9). Forced rounds stay off: this is a production server.
+      - key: CRASH_FAULTS
+        value: 'on'
+      # 100,000 rounds, not a million: the free instance has a tenth of a CPU, where a million-link
+      # chain takes 85 s to build at boot and this one 8.7 s (measured in Docker at --cpus=0.1).
+      # At ~13 s a round it lasts two weeks of continuous play; the service sleeps after 15 minutes
+      # without a visitor, and each wake draws a new chain anyway.
+      - key: CRASH_CHAIN_LENGTH
+        value: '100000'
+      - key: CRASH_CHAIN_ROTATE_AT
+        value: '10000'

@@ -29,7 +29,11 @@ link. **C3 landed 2026-10-01** — the live player list, the history strip, and 
 that recomputes a round in the browser and walks it to the published commit, catching three kinds of
 lying server on the way. **P0 landed 2026-10-01** — a crowd of 500 real clients with broken networks
 and hour-off clocks, for 30 minutes, with no money made or lost and nobody in a wrong state; three
-bugs found on the way. **P1 is next.**
+bugs found on the way. **P1 landed 2026-10-01** — one Docker image serving the game from one
+origin, live on Render's free tier with a fresh chain under a new id at every boot (ADR-0003), a
+Playwright suite in CI (two browsers in one round; a stranger who breaks their connection and
+verifies the round, the same spec run against the live demo), the README and the architecture map.
+**Every block has landed.**
 
 ---
 
@@ -47,7 +51,7 @@ bugs found on the way. **P1 is next.**
 | **C2** | Bet panel, cash-out, auto cash-out, latency disclosure | C1 | ✅ (landed 2026-09-30) |
 | **C3** | Player list, round history, the verification page | C1, S3 | ✅ (landed 2026-10-01) |
 | **P0** | Hardening — load, packet loss, clock drift, fault injection | C2, S3 | ✅ (landed 2026-10-01) |
-| **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ☐ |
+| **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0, S4 | ✅ (landed 2026-10-01) |
 
 **Legend:** ☐ not started · ◐ in progress · ✅ landed (add the date, as `✅ (landed 2026-09-04)`).
 
@@ -350,12 +354,23 @@ and bets — after 39,531 bets, 1,371 reconnects and six storms that each had 20
 
 _1–2 days._
 
-- [ ] Deploy server + web (Fly / Railway), SQLite on a volume so the chain survives a redeploy.
-- [ ] Playwright E2E in CI with a forced crash point: **two browser contexts in one round**, one
-      cashing out, one busting, both asserting the same multiplier at the same moment.
-- [ ] README with a GIF above the fold, the two ADRs summarised in a paragraph each, the house-edge
-      table from S4, and a link to a round anyone can verify.
-- [ ] `docs/architecture.md` — the round loop, the clock, and the one diagram that explains why the
+- [x] Deploy server + web. **Diverged** ([ADR-0003](docs/adr/ADR-0003-demo-host.md)): Render's
+      free tier, not Fly or Railway — no card, and the slot project already runs there — so **no
+      volume**. The chain cannot survive a boot, and keeping `s₀` without its consumed index would
+      replay revealed seeds, so every boot draws a new chain under an id of its own (the boot's Unix
+      second). One image (`Dockerfile`) serves the socket, `/fair/*` and the web app from one origin;
+      `render.yaml` deploys it after CI passes, with the network lab on and a 100,000-link chain
+      (a million takes 85 s to build on the free tier's tenth of a CPU).
+- [x] Playwright E2E in CI with a forced crash point: **two browser contexts in one round**, one
+      cashing out, one busting, both asserting the same multiplier at the same moment
+      (`e2e/duel.spec.ts`). Plus `e2e/stranger.spec.ts` — the "Done when" below as a test, which
+      touches nothing but the page and so runs unchanged against the live demo.
+- [x] README with a GIF above the fold, the two ADRs summarised in a paragraph each, the house-edge
+      table from S4, and a link to a round anyone can verify. **Diverged:** the link is
+      `#/verify/latest`, not one round — a fixed round's chain is gone after the demo's next sleep.
+      The GIF is a real chain round (a dev seed picked so round 7 crashes at 3.37×), not a forced
+      one, so the verification at its end is of the round it shows.
+- [x] `docs/architecture.md` — the round loop, the clock, and the one diagram that explains why the
       client draws its own curve.
 
 **Done when:** a stranger can open the live link, play a round, break the network from the debug

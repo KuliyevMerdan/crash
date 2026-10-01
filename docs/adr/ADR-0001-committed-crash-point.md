@@ -3,6 +3,7 @@
 - **Status:** accepted
 - **Date:** 2026-08-17
 - **Applies to:** the whole repository. Every other decision is downstream of this one.
+- **Amended by:** [ADR-0003](ADR-0003-demo-host.md) — what "persisted" means on a host with no disk.
 
 ## Context
 
@@ -41,7 +42,9 @@ Concretely:
 - The seed is revealed in the `crash` message ([`docs/protocol.md`](../protocol.md) §2.7) and never
   before. A client holding the seed early would know the crash point before betting closed.
 - Chain state is persisted. A server restart resumes the chain at the next unconsumed index — it
-  never regenerates, because a regenerated chain silently breaks every past verification.
+  never regenerates, because a regenerated chain silently breaks every past verification. *(On a
+  host with no disk, a boot draws a new chain under a new id instead — never the same `s₀` without
+  its cursor, which would replay revealed seeds: [ADR-0003](ADR-0003-demo-host.md).)*
 - The house edge lives **inside** the crash-point function as a documented constant, and
   [`tools/sim`](../../tools/sim) asserts it empirically over millions of rounds. Edge is not a fee
   applied elsewhere and not a thumb on the scale during a round.

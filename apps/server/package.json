@@ -27,6 +27,7 @@
     "@crash/fair": "workspace:*",
     "@crash/money": "workspace:*",
     "@crash/protocol": "workspace:*",
+    "@fastify/static": "catalog:",
     "better-sqlite3": "catalog:",
     "fastify": "catalog:",
     "pino": "catalog:",

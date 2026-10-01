@@ -3,7 +3,7 @@ import type { RoundLink } from '@crash/protocol';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { HistoryStrip } from './HistoryStrip.js';
 import { HowItWorks } from './HowItWorks.js';
-import { parseRoundRef, verifyHref } from './route.js';
+import { latestLink, parseRoundRef, verifyHref } from './route.js';
 import { useClientState } from './useClient.js';
 import {
   browserFetchJson,
@@ -24,15 +24,28 @@ const x = (h: number) => `${(h / 100).toFixed(2)}×`;
  * `@crash/fair` running in this tab: the same code the server drew the result with.
  *
  * Mounted afresh for each round (`Root` keys it on the link), so the form and the report always
- * belong to the round in the URL.
+ * belong to the round in the URL. `latest` (`#/verify/latest`) waits for the client's history and
+ * then replaces itself with the newest round's own link, so the address bar names the round checked.
  */
-export function VerifyPage({ client, link }: { client: CrashClient; link: RoundLink | null }) {
+export function VerifyPage({
+  client,
+  link = null,
+  latest = false,
+}: {
+  client: CrashClient;
+  link?: RoundLink | null;
+  latest?: boolean;
+}) {
   const state = useClientState(client);
   const game = state.game;
   const [text, setText] = useState(link ? `${link.chainId}:${link.chainIndex}` : '');
   const [bad, setBad] = useState(false);
   const verification = useVerification(link);
-  const lastRevealed = game?.history.find((h) => h.link !== null)?.link ?? null;
+  const lastRevealed = latestLink(game?.history ?? []);
+
+  useEffect(() => {
+    if (latest && lastRevealed) window.location.replace(verifyHref(lastRevealed));
+  }, [latest, lastRevealed]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -84,6 +97,14 @@ export function VerifyPage({ client, link }: { client: CrashClient; link: RoundL
           </p>
         )}
       </form>
+
+      {latest && !lastRevealed && (
+        <p className="note" role="status">
+          {game
+            ? 'No round has finished on this server yet — the first one will open here by itself.'
+            : 'Joining the table to find the latest round…'}
+        </p>
+      )}
 
       {game && game.history.length > 0 && (
         <section className="recent">

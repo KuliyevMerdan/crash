@@ -5,8 +5,9 @@ repository.
 
 ## Project status
 
-> ⚠️ **The game is playable, every round verifiable, and hardened against a real crowd's network;
-> it has not been deployed yet.** **S0–S4 and C0–C2 landed 2026-09-30, C3 and P0 2026-10-01.** S0: the workspace,
+> ⚠️ **Every block has landed: the game is playable, every round verifiable, hardened against a real
+> crowd's network, and live** at <https://crash-demo.onrender.com/>. **S0–S4 and C0–C2 landed
+> 2026-09-30, C3, P0 and P1 2026-10-01.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
 > zod schema, the curve and its exact inverse, the crash point pinned against an independent
@@ -27,12 +28,17 @@ repository.
 > an hour off, stormed — against the server for 30 minutes, in virtual time in CI and over real
 > sockets by hand, ending with no money made or lost and nobody in a wrong state; it found and fixed
 > a clock estimate 400 ms off under loss (D18), a client that could wait for a `hello` forever, and
-> half-open sockets left in the broadcast.
-> ADR-0001 and ADR-0002 are accepted. **P1 — the deploy, the E2E suite, the README — is next.**
+> half-open sockets left in the broadcast. P1: one Docker image serving the game from one origin,
+> deployed to Render's free tier after CI passes — no disk, so a fresh chain under a new id at every
+> boot (ADR-0003) — and a Playwright suite in CI: two browsers in one forced round agreeing frame for
+> frame, and a stranger who bets, is dropped by the server, recovers and verifies the round, the same
+> spec run against the live demo.
+> ADR-0001, ADR-0002 and ADR-0003 are accepted.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
-> decisions everything else is downstream of).
+> decisions everything else is downstream of). [`docs/architecture.md`](docs/architecture.md) is the
+> map for a first-time reader; it summarises, and where it and this file differ, this file is right.
 >
 > Below **Project description**, a section written in the present tense describes code that exists;
 > one that names a block (`S1`, `C1`…) describes the shape the code **must take** when that block
@@ -102,8 +108,8 @@ implemented — the last, `apps/web`, completed by **C3**.
 | `packages/engine` | the round machine — `step(state, event, now) → { state, effects }`, `nextDeadline`, the `hello` reads (`roundSnapshotOf`, `myBetsOf`), `tickAt`, `auditMoney`. Pure | ✅ S2 |
 | `packages/client-core` | `CrashClient` — one socket through a `Transport` port, the `GameView` it keeps current (`reduce`, pure), `ClockSync` (offset of the fastest of five samples, median rtt — D18), reconnect with jittered backoff, ping liveness and a deadline on `hello`, `placeBet` / `cancelBet` / `cashOut` as idempotent intents, `multiplier()` and `landingMultiplier()`, `sendDev`. **No DOM** — socket, clock and timers are injected | ✅ C0 · P0 |
 | `packages/renderer` | `CrashRenderer` — draws a `Frame` (idle · waiting · running · crashed: plain numbers) on a narrow `Ctx` slice of Canvas 2D; `extents` (the axes as pure functions of time), ticks, `formatMultiplier`. **No React, no protocol** | ✅ C1 |
-| `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `hub` (frames in, effects out, `receivedAt` first; a broadcast serialised once) with a `Lane` per direction per connection for the dev faults, `sockets` (the `ws` adapter and its heartbeat), the store port with memory and SQLite twins, `ChainBook`, the HTTP probes, `/fair/*` and the development-only `/dev/audit`, the boot contract | ✅ S3 · P0 |
-| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `tableModel` and `gradeOf` (pure), `PlayerTable`, `HistoryStrip`, `HowItWorks`; the hash router (`route.ts`) and the verifier — `verifyRound` and `knownFrom` (DOM-free), `VerifyPage`; `scripts/perf.mjs`, `scripts/play.mjs`, `scripts/verify.mjs` | ✅ C1–C3 |
+| `apps/server` | Fastify + `ws`: `Game` (the loop — step, persist, publish), `hub` (frames in, effects out, `receivedAt` first; a broadcast serialised once) with a `Lane` per direction per connection for the dev faults, `sockets` (the `ws` adapter and its heartbeat), the store port with memory and SQLite twins, `ChainBook` (the first chain named `1` or by its boot second), the HTTP probes, `/fair/*` and the development-only `/dev/audit`, the built web app from `/` (`CRASH_STATIC_DIR`), the boot contract | ✅ S3 · P0 · P1 |
+| `apps/web` | Vite + React shell: `browserTransport`, `frameOf` (state + server time → frame, pure), `CurveCanvas` (the one rAF loop), the status pill, the announcer; `panelModel` (pure), `BetPanel`, `CashOutButton`, `ResultBanner`, `useBetting`; `tableModel` and `gradeOf` (pure), `PlayerTable`, `HistoryStrip`, `HowItWorks`; the hash router (`route.ts`, including `#/verify/latest`) and the verifier — `verifyRound` and `knownFrom` (DOM-free), `VerifyPage`; `scripts/perf.mjs`, `scripts/play.mjs`, `scripts/verify.mjs` | ✅ C1–C3 · P1 |
 | `tools/sim` | `simulate` — N rounds through `engine` + `fair` (`chainRounds`), one flat-strategy player per target; the crash distribution, instant busts, strategy RTPs and the pooled edge, each beside its formula and σ; `pnpm sim` prints the tables | ✅ S4 |
 | `tools/load` | `Population` — a crowd of real `CrashClient`s on links of their own, with habits (bet, cancel, auto or a press at a target) and the fault schedule (stall, blackhole, storm), held to a `Truth` with `compare`; `pnpm load` runs it over `ws` against a server process and reads the truth from `/dev/audit` | ✅ P0 |
 
@@ -433,6 +439,62 @@ The crowd is `tools/load`'s `Population`, and it runs twice:
   sockets against a server process on SQLite, with a reconnect storm every five minutes, held at
   the end to `GET /dev/audit` (below).
 
+### One image, one origin, and a demo that forgets on purpose
+
+**P1** ships it. The decisions are [ADR-0003](docs/adr/ADR-0003-demo-host.md)'s; this is the shape.
+
+- **One image** (`Dockerfile`): Debian slim, so `better-sqlite3` installs a prebuilt binary rather
+  than compiling SQLite; a `pnpm deploy` production tree of `apps/server` with the production web
+  build beside it; `CRASH_ENV=production`, the database at `/app/data/crash.db` (a host with a disk
+  mounts `/app/data`), a healthcheck on `/ready`. 404 MB, ≈44 MB resident.
+- **One origin.** With `CRASH_STATIC_DIR` the server serves the web app from `/` beside `/ws` and
+  `/fair/*` — the page already speaks to its own origin, so it needs no CORS, no server address and
+  no proxy. Hashed assets are `immutable` for a year; `index.html` is `no-cache`, so a returning
+  browser never runs last deploy's client against this deploy's server. The API routes are more
+  specific than the static wildcard, so a file can never shadow them (tested with files named
+  `ready` and `fair/chains`). A directory with no `index.html` is a `BootError`, raised before a
+  chain is drawn.
+- **A chain id per boot.** `CRASH_CHAIN_FIRST_ID=boot` (baked into the image) names a fresh store's
+  first chain by the Unix second it was generated. On a host without a disk every boot is a fresh
+  store, so every boot's chain has an id of its own and a verification link from before a restart
+  names a chain the server no longer has — instead of the same coordinates on a different chain,
+  reported verified. With a disk it applies once.
+- **`#/verify/latest`** waits for the client's history and replaces itself with the newest
+  verifiable round's own link — the one verification link that outlives a boot, so the README can
+  carry it.
+- **The live demo** (`render.yaml`): Render's free tier, Frankfurt, deployed only after CI passes,
+  with the network lab on (`CRASH_FAULTS=on`) and a 100,000-link chain rotating with 10,000 left. In
+  Docker at the free tier's limits (`--cpus=0.1 --memory=512m`) a million-link chain took 85 s to
+  build at boot and this one 8.7 s; the server answers `/ready` ≈20 s after start. A sleep and a
+  wake were rehearsed the same way — the container removed and a new one started under an open
+  page: the page reconnected by itself when the new instance came up, onto a new chain with a new
+  commit and a fresh 1,000.00 wallet for the token it held.
+- **The E2E suite** (`e2e/`, Playwright, Chromium) runs in CI after everything else, against
+  `apps/server` in development serving the `--mode perf` build from its own origin — the deploy's
+  shape, plus the dev hooks and a forced round:
+  - `duel.spec.ts` — ROADMAP's two browser contexts in one round, forced to 3.00×: both bet through
+    the real panel and see each other's stake; Ada presses past 1.50× and is paid within a hundredth
+    of what her button promised; Bo rides it to the bust; both banners, both player lists and both
+    history strips agree (the forced round drawn dashed); and every frame the two pages drew within
+    8 ms of each other shows the same multiplier to the hundredth, none past the crash point.
+  - `stranger.spec.ts` — ROADMAP's "Done when" as a test: a fresh context bets in the next window,
+    has the server drop its socket from the network lab, sees the client say it is back with the
+    bet still on the table, rides the round to the bust, follows the banner and gets every step
+    verified — in under two minutes. It touches nothing but the page, so `E2E_BASE_URL=… pnpm
+    e2e:live` runs it unchanged against the live demo.
+
+**What P1 found.** The duel's first run failed its last assertion — a counter at 3.15× in a round
+forced to 3.00× — and it was the test: the frame recorder started before the forced round, and the
+round before it had climbed past 3×. Inside the forced round both pages heard the crash 3 ms after
+`crashedAt` and drew their last frame at exactly 3.00×. Pairing frames within 2 ms, as `perf:web`
+does, found 134 to 879 pairs per run depending on how two pages' frames happened to align, so the
+suite pairs within half a frame (8 ms, where the curve rises at most 0.36 hundredths below 3×).
+`@fastify/static` sets `cache-control: public, max-age=0` itself and overwrote the headers above
+until told not to (`cacheControl: false`). And the first README GIF was a forced round — honest,
+and captioned on screen "forced round (dev) · not verifiable", which is the wrong thing for a
+reviewer's first look; it is now a real chain round from a dev seed picked so round 7 crashes at
+3.37×, and the verification at its end is of that round.
+
 ### Testing layers
 
 | Layer | What it proves | Block |
@@ -448,11 +510,26 @@ The crowd is `tools/load`'s `Population`, and it runs twice:
 | Verifier | `apps/web`: `verifyRound` against a scripted server — an honest round walked in slices, round 1, the browser's own knowledge (the crash point it was shown; commit, salt and edge from `hello`; another chain or none is unknown, not failed), a wrong crash point, a forged seed, a self-consistent round from another chain, a seed claimed at the wrong index, every refusal with its message, an abort mid-walk · `tableModel`, `gradeOf`, the hash route and what a stranger pastes · `fair`: `crashPointTrace` is `crashPoint` with its working, `hashTimes` in slices equals one walk | ✅ C3 |
 | Play (C2 gate) | `pnpm play:web` — at least 30 rounds (on until 8 manual cash-outs, at most 60) in real Chromium on a 300 ms link, the bot typing and clicking the real panel (below) | ✅ C2 |
 | Verify (C3 gate) | `pnpm verify:web` — a stranger loses a round and verifies it; four lying servers; a million-link walk (below) | ✅ C3 |
-| Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 · a real device is P1's |
+| Perf (C1 gate) | `pnpm perf:web` — two real Chromium pages, a forced 100× round, a 5 s stall on the phone's own socket (below) | ✅ C1 |
 | Soak | `tests/soak.test.ts` — 200 players, 10 virtual minutes of stalls, dark links, storms, slow, lossy and hour-off clients against the real server; money audited every second, every player held to the engine at the end · `tests/hostile-clock.test.ts` — a client lying about its clock paid exactly what an honest one is | ✅ P0 |
 | Load (P0 gate) | `pnpm load` — 500 players, 30 minutes, real sockets, a server process on SQLite, the soak's faults and a storm every 5 minutes, held to `/dev/audit` (below) | ✅ P0 |
 | Integration | `apps/server` on a random port with real `ws` clients: two players in one round with the reveal verified against the published commit, and a latecomer's `history` pointing at it (D16), a forced round's at nothing · restart mid-round and after the crash moment (SQLite) · production dropping dev frames · a forced round claiming no link · faults on one connection only, a stall delivering late and in order · a half-open socket terminated by the heartbeat · `/dev/audit` in development only, with nothing secret · the wire's refusals · `betId` single-use across rounds · the log leak check. Plus the store contract (memory and SQLite, including across a reopen), the codec, the chain book, the boot contract and the fault lane (in order under loss, a stall, a late timer) | ✅ S3 · P0 |
-| E2E | Playwright, **two browser contexts in the same round**, one cashing out, one busting | P1 |
+| Integration (P1) | `apps/server` serving a web directory beside the API: `/` `no-cache`, a hashed asset `immutable`, `/ready` and `/fair/chains` never shadowed by files of those names, the socket upgrade on the same port, a 404 for a missing file; a directory with no `index.html` refused before a chain is drawn; `CRASH_CHAIN_FIRST_ID=boot` naming the chain by the boot second in `/fair/chains` and `hello` · `ChainBook` numbering a rotation after a boot-named chain, and never renaming a stored one · `#/verify/latest` and `latestLink` | ✅ P1 |
+| E2E | `pnpm e2e` — Playwright in CI: **two browser contexts in one forced round**, one cashing out and one busting, frame for frame on the same multiplier; a stranger who bets, is dropped, recovers and verifies the round (below) | ✅ P1 |
+
+What `pnpm e2e` measured (2026-10-01, local runs):
+
+**P1 E2E** · headless Chromium, 1280×900 · `apps/server` in development serving the `--mode perf` build
+
+| Measure | Result |
+| --- | --- |
+| Duel: frame pairs within 8 ms / worst disagreement | 879 / 1 hundredth (two runs; at 2 ms: 134–879 pairs, worst 1) |
+| Duel: Ada's manual cash-out | paid 1.50×, within a hundredth of the button's promise (asserted) |
+| Duel: highest counter either page drew in a round forced to 3.00× | 3.00× |
+| Duel: crash heard after `crashedAt`, both pages | 3 ms |
+| Stranger: open → verified (round crashed at) | 10.7 s (1.82×), 13.2 s (2.65×), 6.7 s (1.00×) |
+| Stranger, against the production image at `--cpus=0.1 --memory=512m` | 16.0 s (1.45×) |
+| Page errors, every run | 0 |
 
 What `pnpm perf:web` measured (2026-09-30):
 
@@ -601,6 +678,9 @@ pnpm check
 | `pnpm test` | each unit's own `src/**/*.test.ts` (`config/vitest.package.ts`) |
 | `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/` |
 | `pnpm format` | Prettier. Markdown is excluded: the canon is hand-wrapped |
+| `pnpm e2e` | builds the server and the `--mode perf` web app, then the Playwright suite against a local server. **CI runs it after `check`** |
+| `E2E_BASE_URL=<url> pnpm e2e:live` | the stranger spec alone, against any deployed copy — no server started |
+| `docker build -t crash . && docker run --rm -p 8080:8080 -e CRASH_FAULTS=on crash` | the image the live demo runs, on <http://localhost:8080/> |
 
 Units resolve each other through their built `dist/` and package `exports`, ordered by Turborepo's
 `^build` — not through TypeScript project references, which ROADMAP S0 planned and which would
@@ -633,45 +713,35 @@ AI agent, and this file is where the repository's guidance lives.
 Log what you hit here as you hit it ([Rule 1](#rule-1--log-the-gaps-you-hit)). Open at time of
 writing:
 
-- **Sessions never expire.** A token names a play-money wallet forever, and `SESSION_INVALID` only
-  ever means "unknown". Fine for the demo; a real session lifetime would be a **P1** decision with
-  the host.
 - **The salt is fixed, not beacon-derived.** docs/protocol.md §3.3 records it: a real-money operator
   would take each chain's salt from public randomness published after the commit, so `s₀` could not
   be ground for a favourable chain. Accepted for a play-money demo; revisit only if the project
   ever claims more than that.
-- **The host versus a chain that must survive a redeploy.** P1 plans Fly or Railway with SQLite on a
-  volume; the slot project (2026-09-26) found that the no-card free tier it could actually use —
-  Render — has no persistent disk and sleeps after 15 idle minutes. Worth noting before P1 picks:
-  the chain is fully determined by `s₀` and its length, so "never regenerate" means *never draw a new
-  `s₀`* — `s₀` can live as a secret, and only the consumed index needs durable storage. **P1**
-  decides the host and where that index lives. S3 made the stakes concrete: the SQLite file holds
-  the balances and the journal too, so a host without a disk loses more than the cursor.
-- **Nothing has run on a real phone or a real mobile network.** Every number here is headless
-  Chromium on a desktop (`perf:web` throttles the CPU 4× and emulates a 375×812 DPR-3 screen at
-  120 Hz frames; the verifier's million-hash walk is ≈1.3 s there, a mid-range phone perhaps 3–5×)
-  and every bad network is simulated (P0's lanes: fixed latency, resends — not a cell tower's
-  jitter, which moves a press's real landing by the curve's rise over the jitter, off the `rtt/2`
-  the button prices). P0 measured the server and the simulated links; a phone on a real network
-  against the live demo needs the deploy, so it is **P1**'s.
+- **Nothing has run on a real phone.** Every frame-time number here is headless Chromium on a desktop
+  (`perf:web` throttles the CPU 4× and emulates a 375×812 DPR-3 screen; the verifier's million-hash
+  walk is ≈1.3 s there, a mid-range phone perhaps 3–5× — the demo's 100,000-link chain is a tenth of
+  that walk). The live demo is the place to try one; P1 could not, from here. A cell network's
+  jitter moves a press's real landing by the curve's rise over the jitter, off the `rtt/2` the
+  button prices — P0's lanes simulate latency and resends, not jitter. **Accepted, open.**
 - **The load test shares the machine with the server.** `pnpm load` runs 500 clients in one Node
   process beside the server's, so its fan-out and stamp numbers include contention for the same
-  cores — an upper bound on what the server costs, not a capacity figure. A capacity number needs
-  the clients elsewhere: with the deploy, **P1**.
+  cores — an upper bound on what the server costs, not a capacity figure. The live demo is not the
+  place to measure capacity either: a tenth of a CPU, shared. **Accepted, open.**
 - **The client bundle is 101 KB gzipped**, most of it React and zod. The dev message *schemas* ride
   along (a top-level zod call is not provably pure, so the bundler keeps it) — inert, since the
   client never sends one and the server decides whether to listen; the dev *hooks* and
-  `__ASSERT_CURVE__` are stripped (checked by grepping the production bundle). **P1** can split
-  `@crash/protocol/dev` if the bytes ever matter.
+  `__ASSERT_CURVE__` are stripped (checked by grepping the production bundle). Splitting
+  `@crash/protocol/dev` would save a few KB. **Accepted.**
 - **The browser remembers one session's chain.** Step 5 of the verifier compares against the
-  commit, salt and edge from *this* page's `hello`; reload after a chain rotation and the old chain's
-  commit is gone from the browser, so a returning player cannot hold the server to last week's
-  commit unless they saved it. Persisting every commit a browser has been handed (`localStorage`,
-  keyed by chain) would close it — a **P1** call, with the deploy.
+  commit, salt and edge from *this* page's `hello`; after a reload the browser knows only the
+  current chain's. Persisting every commit a browser has been handed (`localStorage`, keyed by chain)
+  would let a returning player hold the server to an older commit — but on the live demo the server
+  forgets every older chain at its next sleep anyway (ADR-0003), so the page could compare and then
+  have nothing to fetch. **Accepted** for this host; worth doing on one with a disk.
 - **A verification link opened cold joins the table.** The verifier lives in the game's app, so a
   stranger following a link gets a socket and a play-money wallet they never asked for — which is
-  also what lets step 5 compare against a `hello`. Harmless at demo scale; **P1** decides whether a
-  wallet should wait for a first bet.
+  also what lets step 5 compare against a `hello`, and costs nothing on a demo whose wallets last a
+  boot. **Accepted.**
 - **The line ends where the client last drew it, then snaps to the crash.** The crash arrives a
   one-way latency after it happened, so the curve has been drawn that far past the crash point and
   the break pulls it back — ~60 ms of curve at typical latency, invisible below ~50×. A crash during

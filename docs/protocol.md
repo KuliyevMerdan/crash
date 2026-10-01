@@ -337,7 +337,9 @@ SHA256^j(seed_j) = commit            // what the verification page does, in the 
 
 - **Length:** `N = 1,000,000` — at ~20 s a round, about seven months of continuous play. Generating
   it is a million hashes, once; the server keeps checkpoints so any seed is a bounded walk away.
-- **Rotation:** chains are numbered from `1`. When a chain has **50,000** rounds left (~11 days), the
+- **Rotation:** chains are numbered from `1` — or, on a host without a disk, from the Unix second
+  the first one was generated (`CRASH_CHAIN_FIRST_ID=boot`, ADR-0003), so each boot's chain has an
+  id no earlier boot used. When a chain has **50,000** rounds left (~11 days), the
   next one is generated and its `{ id, commit, salt, length }` published at `GET /fair/chains`; the
   first round after index `N − 1` opens on the next chain at index `1`. Nothing about a round in
   flight changes at a rotation.
@@ -346,7 +348,9 @@ SHA256^j(seed_j) = commit            // what the verification page does, in the 
   `s₀` for a chain it liked; for a play-money demo the fixed salt is recorded as the gap it is.
 - **Never regenerate.** `s₀` is the chain; the server only ever needs `s₀` and the consumed index.
   A restart resumes at the next unconsumed index. A new `s₀` for a published commit would silently
-  break every past verification.
+  break every past verification. A host that cannot keep the consumed index (no disk) must not
+  keep `s₀` either — rebuilding the same chain from round 1 would replay revealed seeds — so it
+  draws a new chain, under a new id, at every boot (ADR-0003).
 
 The one HTTP surface of the game, for the verification page and anyone with `curl`:
 

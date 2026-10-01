@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -44,3 +44,18 @@ jobs:
 
       - name: Formatting
         run: pnpm run format:check
+
+      # Last, and only once everything above is green: a browser is the slowest thing in the run.
+      - name: Chromium for the E2E suite
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E (two browsers in one forced round; a stranger's round, broken and verified)
+        run: pnpm run e2e
+
+      - name: E2E traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: test-results/
+          retention-days: 7

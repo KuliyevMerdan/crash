@@ -33,14 +33,16 @@ export class ChainBook {
     private readonly log: Logger,
   ) {}
 
+  /** `firstId` names a fresh store's first chain — `1` unless the config says `'boot'`. */
   static open(
     store: Store,
     config: ServerConfig['chain'],
     houseEdgeBps: number,
     log: Logger,
+    firstId = 1,
   ): ChainBook {
     const book = new ChainBook(store, config, houseEdgeBps, log);
-    if (store.chains().length === 0) book.generate(1, config.devSeed ?? chainSeed());
+    if (store.chains().length === 0) book.generate(firstId, config.devSeed ?? chainSeed());
     book.build(book.current());
     return book;
   }

@@ -5,7 +5,13 @@ import { ChainBook } from './chains.js';
 import { memoryStore } from './store/memory.js';
 
 const log = pino({ level: 'silent' });
-const config = { length: 30, rotateAt: 10, saltPrefix: 'test-chain-', devSeed: 'ee'.repeat(32) };
+const config = {
+  length: 30,
+  rotateAt: 10,
+  saltPrefix: 'test-chain-',
+  devSeed: 'ee'.repeat(32),
+  firstId: 1,
+};
 
 describe('the chain book', () => {
   it('generates chain 1 once, from the dev seed, and never again', () => {
@@ -15,6 +21,20 @@ describe('the chain book', () => {
     ChainBook.open(store, { ...config, devSeed: '11'.repeat(32) }, 100, log);
     expect(store.chains()).toHaveLength(1);
     expect(store.chains()[0]?.commit).toBe(commit);
+  });
+
+  it('names a fresh store’s first chain as told, and numbers the next one after it', () => {
+    const store = memoryStore();
+    const book = ChainBook.open(store, config, 100, log, 1_790_000_000);
+    expect(book.info()).toMatchObject({ id: 1_790_000_000, salt: 'test-chain-1790000000' });
+    for (let j = 1; j <= 29; j += 1) {
+      store.setConsumed(book.next().chain.id, j);
+      book.rotateIfDue();
+    }
+    expect(store.chains().map((c) => c.id)).toEqual([1_790_000_000, 1_790_000_001]);
+    // A store that already has its chain keeps it, whatever the boot says.
+    ChainBook.open(store, config, 100, log, 5);
+    expect(store.chains().map((c) => c.id)).toEqual([1_790_000_000, 1_790_000_001]);
   });
 
   it('hands out links in order, each linking to the one before and back to the commit', () => {

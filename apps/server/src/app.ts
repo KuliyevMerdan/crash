@@ -1,8 +1,11 @@
+import { existsSync } from 'node:fs';
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
+import path from 'node:path';
+import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import { ChainBook } from './chains.js';
-import type { ServerConfig } from './config.js';
+import { BootError, type ServerConfig } from './config.js';
 import { Game } from './game.js';
 import { registerRoutes } from './http.js';
 import { createHub, type Hub } from './hub.js';
@@ -37,7 +40,14 @@ export function createGameServer(deps: GameServerDeps): GameServer {
   const { config, store, log } = deps;
   const clock = deps.clock ?? systemClock;
   const scheduler = deps.scheduler ?? systemScheduler;
-  const chains = ChainBook.open(store, config.chain, config.game.houseEdgeBps, log);
+  const { firstId } = config.chain;
+  const chains = ChainBook.open(
+    store,
+    config.chain,
+    config.game.houseEdgeBps,
+    log,
+    firstId === 'boot' ? Math.floor(clock.now() / 1000) : firstId,
+  );
   const game = Game.create({ config, store, chains, clock, scheduler, log });
   const hub = createHub({
     config,
@@ -70,6 +80,7 @@ export interface Server extends GameServer {
 /** Everything wired, nothing started — tests and `main.ts` both build the server through here. */
 export function createServer(deps: GameServerDeps): Server {
   const { config, store, log } = deps;
+  const webRoot = config.staticDir === null ? null : webAppRoot(config.staticDir);
   const core = createGameServer(deps);
   const app = Fastify<HttpServer, IncomingMessage, ServerResponse, FastifyBaseLogger>({
     loggerInstance: log,
@@ -78,6 +89,7 @@ export function createServer(deps: GameServerDeps): Server {
   });
   const sockets = createSockets(core.hub, log, config.heartbeatMs);
   registerRoutes(app, { config, store, chains: core.chains, game: core.game });
+  if (webRoot !== null) serveWebApp(app, webRoot);
 
   app.server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/ws') {
@@ -104,4 +116,35 @@ export function createServer(deps: GameServerDeps): Server {
       store.close();
     },
   };
+}
+
+/**
+ * The built web app from `/` (ADR-0003). Vite names every asset by its content hash, so those are
+ * cached for a year; `index.html` names the current ones and must be asked for afresh every time,
+ * or a returning browser runs last deploy's client against this deploy's server — the skew the
+ * protocol parsers exist to catch, better not caused. The API's own routes are registered first and
+ * are more specific, so a file can never shadow `/fair/*` or the probes.
+ */
+function serveWebApp(app: FastifyInstance, root: string): void {
+  void app.register(fastifyStatic, {
+    root,
+    cacheControl: false, // its own `max-age=0` would overwrite the headers set below
+    setHeaders(res, file) {
+      res.setHeader(
+        'cache-control',
+        file.includes(`${path.sep}assets${path.sep}`)
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
+      );
+    },
+  });
+}
+
+/** Checked before anything else boots, so a bad path costs no chain and names itself. */
+function webAppRoot(dir: string): string {
+  const root = path.resolve(dir);
+  if (!existsSync(path.join(root, 'index.html'))) {
+    throw new BootError([`CRASH_STATIC_DIR has no index.html: ${root}`]);
+  }
+  return root;
 }
