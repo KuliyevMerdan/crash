@@ -137,7 +137,7 @@ export class VirtualNet implements Transport {
           void this.time.setTimeout(() => {
             if (alive && !dark) handlers.message(frame);
           }, this.latency.down),
-        terminate: () => kill(true),
+        close: () => kill(true),
         get isOpen() {
           return alive;
         },

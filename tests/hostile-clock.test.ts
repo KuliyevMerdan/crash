@@ -19,7 +19,7 @@ function player(server: ReturnType<typeof createGameServer>) {
       const outcome = parseServerMessage(JSON.parse(frame));
       if (outcome.kind === 'ok') heard.push(outcome.message);
     },
-    terminate: () => {},
+    close: () => {},
     isOpen: true,
   });
   return {

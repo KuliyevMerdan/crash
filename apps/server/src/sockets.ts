@@ -18,6 +18,9 @@ export interface Sockets {
  * browser itself, below any JavaScript); a socket that has not answered the previous one is
  * terminated. A dead peer is gone within two intervals.
  */
+/** The close code the server ends a connection with — 4000s are the application's to define. */
+export const CLOSED_BY_SERVER = 4000;
+
 export function createSockets(hub: Hub, log: Logger, heartbeatMs: number): Sockets {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
   const answered = new WeakMap<WebSocket, boolean>();
@@ -39,7 +42,11 @@ export function createSockets(hub: Hub, log: Logger, heartbeatMs: number): Socke
     ws.on('pong', () => answered.set(ws, true));
     const attached = hub.attach({
       send: (frame) => ws.send(frame),
-      terminate: () => ws.terminate(),
+      close: () => {
+        ws.close(CLOSED_BY_SERVER, 'closed by the server');
+        // A peer that never answers the close frame is gone; stop waiting for it.
+        setTimeout(() => ws.terminate(), 2000).unref();
+      },
       get isOpen() {
         return ws.readyState === ws.OPEN;
       },

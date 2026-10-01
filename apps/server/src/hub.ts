@@ -14,8 +14,12 @@ import type { Clock, Scheduler } from './time.js';
 /** One end of a connection, whatever carries it — a `ws` socket, or a test's in-process pipe. */
 export interface Peer {
   send(frame: string): void;
-  /** Drop the connection as a dead network would: no close handshake. */
-  terminate(): void;
+  /**
+   * End the connection, telling the other end: a close frame, which a proxy in between passes on at
+   * once. A hard drop is what a dead network does, and behind a proxy (Render's, P1) the browser only
+   * learns of it from its own liveness check, ~20 s later — so the server never chooses one.
+   */
+  close(): void;
   readonly isOpen: boolean;
 }
 
@@ -128,7 +132,7 @@ export function createHub(deps: {
         return;
       case 'devDisconnect':
         log.info({ conn: conn.id }, 'disconnect requested');
-        conn.peer.terminate();
+        conn.peer.close();
         return;
       case 'devForceCrashPoint':
         game.forceNext(message.crashPoint);
@@ -188,7 +192,7 @@ export function createHub(deps: {
       return connections.size;
     },
     close() {
-      for (const conn of connections) conn.peer.terminate();
+      for (const conn of connections) conn.peer.close();
       connections.clear();
       byPlayer.clear();
     },

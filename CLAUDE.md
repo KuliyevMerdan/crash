@@ -6,7 +6,7 @@ repository.
 ## Project status
 
 > ⚠️ **Every block has landed: the game is playable, every round verifiable, hardened against a real
-> crowd's network, and live** at <https://crash-demo.onrender.com/>. **S0–S4 and C0–C2 landed
+> crowd's network, and live** at <https://crash-demo-ut88.onrender.com/>. **S0–S4 and C0–C2 landed
 > 2026-09-30, C3, P0 and P1 2026-10-01.** S0: the workspace,
 > strict TypeScript, the dependency graph and purity rules enforced and *proven to fire*, CI. S1:
 > `protocol`, `money`, `curve`, `fair` — every message in [`docs/protocol.md`](docs/protocol.md) as a
@@ -397,7 +397,8 @@ the way real ones break — then held every player to the server's account of it
 - **Loss is late, never lost** (D17). Each direction of each connection runs through a `Lane`
   (`apps/server/src/link.ts`): a fixed latency, and with probability `lossRate` a frame's packet is
   resent after TCP's retransmission timeout (200 ms, doubling) while every frame behind it waits.
-  `devStall` freezes both lanes, `devDisconnect` kills the socket. S3's `dropRate` discarded frames
+  `devStall` freezes both lanes, `devDisconnect` closes the socket from the server's end (a close
+  frame, code 4000 — P1). S3's `dropRate` discarded frames
   mid-connection — a fault no WebSocket produces — and is gone. **Order is the lane's queue, not
   its timers**: the first version armed a timer per frame, and the load run caught real Node timers
   firing late enough for a tick to overtake its round's crash — 114 resyncs in two minutes, and one

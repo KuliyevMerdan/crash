@@ -16,13 +16,13 @@ browser.**
 
 <img src="docs/media/demo.gif" width="800" alt="A round: a bet of 10.00, cashed out at 2.07× for +20.70 while the curve climbs on to crash at 3.37×, then the verification page recomputing that round in the browser and walking it back to the published commit.">
 
-### [▶ Play the live demo](https://crash-demo.onrender.com/) · [Verify the latest round](https://crash-demo.onrender.com/#/verify/latest)
+### [▶ Play the live demo](https://crash-demo-ut88.onrender.com/) · [Verify the latest round](https://crash-demo-ut88.onrender.com/#/verify/latest)
 
 **18+ · Demo · Play money only — no real money, no payments, no crypto.**
 
 </div>
 
-> **[crash-demo.onrender.com](https://crash-demo.onrender.com/)** runs on a free tier that sleeps
+> **[crash-demo-ut88.onrender.com](https://crash-demo-ut88.onrender.com/)** runs on a free tier that sleeps
 > after 15 idle minutes: the first visit after a quiet spell takes about a minute to wake it, and
 > every wake is a fresh table — a new chain, new play-money wallets ([ADR-0003](docs/adr/ADR-0003-demo-host.md)).
 >
@@ -127,7 +127,7 @@ pnpm install
 pnpm dev          # server on :8080, the web app on http://localhost:5173
 pnpm check        # lint, boundaries, build, typecheck, every test — what CI runs
 pnpm e2e          # the Playwright suite against a local server
-E2E_BASE_URL=https://crash-demo.onrender.com pnpm e2e:live   # the stranger, against any deploy
+E2E_BASE_URL=https://crash-demo-ut88.onrender.com pnpm e2e:live   # the stranger, against any deploy
 ```
 
 The browser gates (`pnpm perf:web`, `play:web`, `verify:web`), the million-round simulation

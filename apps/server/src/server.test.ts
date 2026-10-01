@@ -16,6 +16,7 @@ import {
   type Running,
 } from './__fixtures__/harness.js';
 import { BootError } from './config.js';
+import { CLOSED_BY_SERVER } from './sockets.js';
 import { sqliteStore } from './store/sqlite.js';
 
 const DEV_SEED = devSeedWithFirstCrashAtLeast(400); // round 1 runs ≥ 1.4 s at k = 1
@@ -251,9 +252,11 @@ describe('the dev surface (docs/protocol.md §9)', () => {
     const thawed = await slow.next('pong', (m) => m.clientTime === frozenAt, 1500);
     expect(thawed.serverTime - frozenAt).toBeGreaterThanOrEqual(600); // stamped when it arrived
 
+    // Closed with a close frame, not dropped: a proxy in between passes a frame on at once, and a
+    // hard drop (1006 here) reached a browser behind Render's only ~20 s later (P1).
     const closed = new Promise<number>((resolve) => slow.socket.once('close', resolve));
     slow.send({ type: 'devDisconnect' });
-    await closed;
+    expect(await closed).toBe(CLOSED_BY_SERVER);
     fine.send({ type: 'ping', clientTime: Date.now() });
     await fine.next('pong');
   });
